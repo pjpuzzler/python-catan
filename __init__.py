@@ -1,20 +1,31 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from random import shuffle
-from typing import List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 
-Color: int
+Color = int
 COLORS = (BLUE, ORANGE, RED, WHITE) = range(1, 5)
 
 BuildingType: bool
 BUILDING_TYPES = (CITY, SETTLEMENT) = [True, False]
 
-HarborType: int
+HarborType = int
 HARBOR_TYPES = (BRICK, LUMBER, ORE, GRAIN, WOOL, ANY) = range(1, 7)
 
-TileType: int
+TileType = int
 TILE_TYPES = (DESERT, HILLS, FOREST, MOUNTAINS, FIELDS, PASTURE) = range(6)
+
+TileIdx = int
+TILE_IDXS = range(19)
+
+VertexIdx = int
+VERTEX_IDXS = range(54)
+
+EdgeIdx = int
+EDGE_IDXS = range(72)
+
+Roll = int
 
 
 @dataclass
@@ -56,16 +67,20 @@ class Player:
 
 
 class CatanBoard:
-    BASE_TILES = [Tile(DESERT, True)] + [Tile(HILLS) for _ in range(3)] + [Tile(FOREST) for _ in range(4)] + \
-        [Tile(MOUNTAINS) for _ in range(3)] + [Tile(FIELDS)
-                                               for _ in range(4)] + [Tile(PASTURE) for _ in range(4)]
+    token_tiles: Dict[Roll, Tuple[TileIdx]]
+    tiles: List[List[Optional[Tile]]]
+    vertices: List[List[Optional[Vertex]]]
+    edges: List[List[Optional[Road]]]
 
+    BASE_TILE_TYPES = [DESERT] + [HILLS] * 3 + [FOREST] * \
+        4 + [MOUNTAINS] * 3 + [FIELDS] * 4 + [PASTURE] * 4
     BASE_HARBOR_TYPES = list(HARBOR_TYPES[:-1]) + [ANY] * 4
+    BASE_TOKEN_TILES = {2: (1,), 3: (3, 16), 4: (9, 13), 5: (0, 14), 6: (
+        2, 15), 8: (4, 10), 9: (6, 12), 10: (5, 11), 11: (8, 17), 12: (7,)}
 
     HEX_COORDS = [(0, 0), (1, 0), (2, 0), (3, 1), (4, 2), (4, 3), (4, 4), (3, 4), (2, 4),
                   (1, 3), (0, 2), (0, 1), (1, 1), (2, 1), (3, 2), (3, 3), (2, 3), (1, 2), (2, 2)]
-
-    HARBOR_COORDS = {(0, 2): 0, (0, 3): 0, (1, 1): 1, (2, 1): 1, (3, 1): 2, (4, 1): 2, (5, 2): 3, (5, 3): 3, (5, 5): 4, (5, 6): 4, (4, 8): 5, (4, 9): 5, (2, 10): 6, (3, 10): 6, (1, 8): 7, (1, 9): 7, (0, 5): 8, (0, 6): 8}
+    HARBOR_COORDS = {(0, 2): 0, (0, 3): 0, (1, 1): 1, (2, 1): 1, (3, 1): 2, (4, 1): 2, (5, 2): 3, (5, 3): 3, (5, 5)                     : 4, (5, 6): 4, (4, 8): 5, (4, 9): 5, (2, 10): 6, (3, 10): 6, (1, 8): 7, (1, 9): 7, (0, 5): 8, (0, 6): 8}
 
     def __init__(self, board_str: Optional[str] = None) -> None:
         if board_str is None:
@@ -74,11 +89,15 @@ class CatanBoard:
             self._init_board_str(board_str)
 
     def _init_random(self) -> None:
-        base_tiles = CatanBoard.BASE_TILES[:]
-        shuffle(base_tiles)
+        base_tiles_types = CatanBoard.BASE_TILE_TYPES[:]
+        shuffle(base_tiles_types)
 
-        self.tiles = [base_tiles[:3] + [None] * 2, base_tiles[3:7] + [None],
-                      base_tiles[7:12], [None] + base_tiles[12:16], [None] * 2 + base_tiles[16:]]
+        robber_idx = base_tiles_types.index(DESERT)
+        self.token_tiles = {roll: tuple(tile_idx + 1 if tile_idx >= robber_idx else tile_idx for tile_idx in tile_idxs)
+                            for roll, tile_idxs in CatanBoard.BASE_TOKEN_TILES.items()}
+
+        self.tiles = [base_tiles_types[:3] + [None] * 2, base_tiles_types[3:7] + [None],
+                      base_tiles_types[7:12], [None] + base_tiles_types[12:16], [None] * 2 + base_tiles_types[16:]]
 
         base_harbor_types = CatanBoard.BASE_HARBOR_TYPES[:]
         shuffle(base_harbor_types)
@@ -100,11 +119,18 @@ class CatanBoard:
         raise NotImplementedError
 
     @staticmethod
-    def _tile_to_vertices(i: int, j: int) -> Tuple[int, int]:
+    def _tile_to_vertices(i: int, j: int) -> List[Tuple[int, int]]:
         i_0, j_0 = i, 2 * j + (2 - i)
         return [(i_0 + k // 3, j_0 + k % 3) for k in range(6)]
 
     @staticmethod
-    def _vertex_to_edges(i: int, j: int) -> Tuple[int, int]:
+    def _vertex_to_edges(i: int, j: int) -> List[Tuple[int, int]]:
         i_0, j_0 = 2 * i, j
-        return [(i_0 + k % 3, ((j_0,) * 3 + (j_0 + 1,) * 2 + (j_0 + 2,))[k]) for k in range(6)]
+        J = (j_0,) * 3 + (j_0 + 1,) * 2 + (j_0 + 2,)
+        edges = []
+        for k in range(6):
+            i_k, j_k = i_0 + k % 3, J[k]
+            if not (0 <= i_k < 11 and 0 <= j_k < 11):
+                continue
+            edges.append((i_k, j_k))
+        return edges
