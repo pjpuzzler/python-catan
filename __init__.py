@@ -67,27 +67,31 @@ class Player:
 
 
 class CatanBoard:
-    token_tiles: Dict[Roll, Tuple[TileIdx]]
-    tiles: List[List[Optional[Tile]]]
-    vertices: List[List[Optional[Vertex]]]
-    edges: List[List[Optional[Road]]]
+    board_str: str
 
     BASE_TILE_TYPES = [DESERT] + [HILLS] * 3 + [FOREST] * \
         4 + [MOUNTAINS] * 3 + [FIELDS] * 4 + [PASTURE] * 4
     BASE_HARBOR_TYPES = list(HARBOR_TYPES[:-1]) + [ANY] * 4
+
     BASE_TOKEN_TILES = {2: (1,), 3: (3, 16), 4: (9, 13), 5: (0, 14), 6: (
         2, 15), 8: (4, 10), 9: (6, 12), 10: (5, 11), 11: (8, 17), 12: (7,)}
 
-    HEX_COORDS = [(0, 0), (1, 0), (2, 0), (3, 1), (4, 2), (4, 3), (4, 4), (3, 4), (2, 4),
-                  (1, 3), (0, 2), (0, 1), (1, 1), (2, 1), (3, 2), (3, 3), (2, 3), (1, 2), (2, 2)]
-    HARBOR_COORDS = {(0, 2): 0, (0, 3): 0, (1, 1): 1, (2, 1): 1, (3, 1): 2, (4, 1): 2, (5, 2): 3, (5, 3): 3, (5, 5)
-                      : 4, (5, 6): 4, (4, 8): 5, (4, 9): 5, (2, 10): 6, (3, 10): 6, (1, 8): 7, (1, 9): 7, (0, 5): 8, (0, 6): 8}
+    TILE_COORDS = [(0, 0), (1, 0), (2, 0), (3, 1), (4, 2), (4, 3), (4, 4), (3, 4), (2, 4),
+                   (1, 3), (0, 2), (0, 1), (1, 1), (2, 1), (3, 2), (3, 3), (2, 3), (1, 2), (2, 2)]
+    HARBOR_COORDS = {(0, 2): 0, (0, 3): 0, (1, 1): 1, (2, 1): 1, (3, 1): 2, (4, 1): 2, (5, 2): 3, (5, 3): 3, (5, 5)                     : 4, (5, 6): 4, (4, 8): 5, (4, 9): 5, (2, 10): 6, (3, 10): 6, (1, 8): 7, (1, 9): 7, (0, 5): 8, (0, 6): 8}
 
     BOARD_STR_TILE_TYPES = {"d": DESERT, "h": HILLS,
                             "f": FOREST, "m": MOUNTAINS, "i": FIELDS, "p": PASTURE}
-    BOARD_STR_TILE_COUNTS = {"d": 1, "h": 3, "f": 4, "m": 3, "i": 4, "p": 4}
+    TILE_TYPE_BOARD_STRS = {DESERT: "d", HILLS: "h",
+
+                            FOREST: "f", MOUNTAINS: "m", FIELDS: "i", PASTURE: "p"}
+
     BOARD_STR_HARBOR_TYPES = {"b": BRICK, "l": LUMBER,
                               "o": ORE, "g": GRAIN, "w": WOOL, "a": ANY}
+    HARBOR_TYPE_BOARD_STRS = {BRICK: "b", LUMBER: "l",
+                              ORE: "o", GRAIN: "g", WOOL: "w", ANY: "a"}
+
+    BOARD_STR_TILE_COUNTS = {"d": 1, "h": 3, "f": 4, "m": 3, "i": 4, "p": 4}
     BOARD_STR_HARBOR_COUNTS = {"b": 1, "l": 1, "o": 1, "g": 1, "w": 1, "a": 4}
 
     def __init__(self, board_str: Optional[str] = None) -> None:
@@ -96,23 +100,29 @@ class CatanBoard:
         else:
             self._init_board_str(board_str)
 
+    def __repr__(self) -> str:
+        pass
+
     def _init_random(self) -> None:
         tile_types = CatanBoard.BASE_TILE_TYPES
         shuffle(tile_types)
 
         robber_idx = tile_types.index(DESERT)
-        self.token_tiles = {roll: tuple(tile_idx + 1 if tile_idx >= robber_idx else tile_idx for tile_idx in tile_idxs)
-                            for roll, tile_idxs in CatanBoard.BASE_TOKEN_TILES.items()}
+        self._token_tiles = {roll: tuple(tile_idx + 1 if tile_idx >= robber_idx else tile_idx for tile_idx in tile_idxs)
+                             for roll, tile_idxs in CatanBoard.BASE_TOKEN_TILES.items()}
 
         tiles = [Tile(tile_type, tile_type == DESERT)
                  for tile_type in tile_types]
 
-        self.tiles = CatanBoard._get_tile_matrix(tiles)
+        self._tiles = CatanBoard._get_tile_matrix(tiles)
 
         harbor_types = CatanBoard.BASE_HARBOR_TYPES[:]
         shuffle(harbor_types)
 
         self._init_vertices_and_edges(harbor_types)
+
+        self._board_str = self._get_board_str(
+            tile_types, harbor_types, robber_idx)
 
     def _init_board_str(self, board_str: str) -> None:
         parts = board_str.split(" ")
@@ -137,7 +147,7 @@ class CatanBoard:
             tile_type = CatanBoard.BOARD_STR_TILE_TYPES[c]
             tiles.append(Tile(tile_type, i == robber_idx))
 
-        self.tiles = CatanBoard._get_tile_matrix(tiles)
+        self._tiles = CatanBoard._get_tile_matrix(tiles)
 
         board_str_harbor_counts = CatanBoard.BOARD_STR_HARBOR_COUNTS.copy()
         harbor_types = []
@@ -152,23 +162,48 @@ class CatanBoard:
 
         self._init_vertices_and_edges(harbor_types)
 
+        self._board_str = board_str
+
     def _init_vertices_and_edges(self, harbor_types: List[HarborType]) -> None:
-        self.vertices = [[None] * 11] * 6
+        self._vertices = [[None] * 11] * 6
 
         for i_t in range(5):
             for j_t in range(5):
-                if self.tiles[i_t][j_t] is not None:
+                if self._tiles[i_t][j_t] is not None:
                     for i_v, j_v in CatanBoard._tile_to_vertices(i_t, j_t):
-                        if self.vertices[i_v][j_v] is None:
-                            self.vertices[i_v][j_v] = Vertex()
+                        if self._vertices[i_v][j_v] is None:
+                            self._vertices[i_v][j_v] = Vertex()
                             if (i_t, j_t) in CatanBoard.HARBOR_COORDS:
-                                self.vertices[i_v][j_v].harbor_type = harbor_types[CatanBoard.HARBOR_COORDS[i_t, j_t]]
+                                self._vertices[i_v][j_v].harbor_type = harbor_types[CatanBoard.HARBOR_COORDS[i_t, j_t]]
 
-        self.edges = [[None] * 11] * 11
+        self._edges = [[None] * 11] * 11
+
+    def _get_board_str(self, tile_types: List[TileType], harbor_types: List[HarborType], robber_idx: int) -> str:
+        board_str_builder = []
+
+        tile_str_builder = [CatanBoard.TILE_TYPE_BOARD_STRS[tile_type]
+                            for tile_type in tile_types]
+        board_str_builder.append("".join(tile_str_builder))
+
+        harbor_str_builder = [
+            CatanBoard.HARBOR_TYPE_BOARD_STRS[harbor_type] for harbor_type in harbor_types]
+        board_str_builder.append("".join(harbor_str_builder))
+
+        board_str_builder.append(str(robber_idx))
+
+        return " ".join(board_str_builder)
+
+    @property
+    def board_str(self) -> str:
+        return self._board_str
 
     @staticmethod
     def _get_tile_matrix(tiles: List[Tile]) -> List[List[Optional[Tile]]]:
-        raise NotImplementedError
+        return [[tiles[0], tiles[11], tiles[10], None, None],
+                [tiles[1], tiles[12], tiles[17], tiles[9], None],
+                [tiles[2], tiles[13], tiles[18], tiles[16], tiles[8]],
+                [None, tiles[3], tiles[14], tiles[15], tiles[7]],
+                [None, None, tiles[4], tiles[5], tiles[6]]]
 
     @staticmethod
     def _tile_to_vertices(i: int, j: int) -> List[Tuple[int, int]]:
