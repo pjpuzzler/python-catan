@@ -141,21 +141,39 @@ class _CatanBoard:
     @staticmethod
     def _get_vertex_matrix_from_vertices(vertices: List[Vertex]) -> List[List[Optional[Vertex]]]:
 
-        return [[None, None, vertices[0], vertices[29], vertices[28], vertices[27], vertices[26], vertices[25], vertices[24], None, None],
-                [None, vertices[2], vertices[1], vertices[30], vertices[47],
-                    vertices[46], vertices[45], vertices[44], vertices[23], None],
-                [vertices[4], vertices[3], vertices[32], vertices[31], vertices[48], vertices[53],
-                    vertices[52], vertices[43], vertices[42], vertices[21], vertices[20]],
-                [vertices[5], vertices[6], vertices[33], vertices[34], vertices[49], vertices[50],
-                    vertices[51], vertices[40], vertices[41], vertices[18], vertices[19]],
-                [None, vertices[7], vertices[8], vertices[35], vertices[36], vertices[37],
-                    vertices[38], vertices[39], vertices[16], vertices[17], None],
-                [None, None, vertices[9], vertices[10], vertices[11], vertices[12], vertices[13], vertices[14], vertices[15], None, None]]
+        return [
+            [None, None, vertices[0], vertices[29], vertices[28], vertices[27],
+                vertices[26], vertices[25], vertices[24], None, None],
+            [None, vertices[2], vertices[1], vertices[30], vertices[47],
+             vertices[46], vertices[45], vertices[44], vertices[23], None],
+            [vertices[4], vertices[3], vertices[32], vertices[31], vertices[48], vertices[53],
+             vertices[52], vertices[43], vertices[42], vertices[21], vertices[20]],
+            [vertices[5], vertices[6], vertices[33], vertices[34], vertices[49], vertices[50],
+             vertices[51], vertices[40], vertices[41], vertices[18], vertices[19]],
+            [None, vertices[7], vertices[8], vertices[35], vertices[36], vertices[37],
+             vertices[38], vertices[39], vertices[16], vertices[17], None],
+            [None, None, vertices[9], vertices[10], vertices[11], vertices[12],
+                vertices[13], vertices[14], vertices[15], None, None]
+        ]
 
     @staticmethod
     def _get_edge_matrix_from_edges(edges: List[Edge]) -> List[List[Optional[Edge]]]:
 
-        ...
+        return [
+            [None, None, edges[0], edges[29], edges[28],
+                edges[27], edges[26], edges[25], None, None, None],
+            [None, None, edges[1], None, edges[41], None,
+             edges[40], None, edges[24], None, None],
+            [None, edges[2], edges[30], edges[42], edges[59],
+             edges[58], edges[57], edges[39], edges[23], None, None],
+            [None, edges[3], None, edges[43], None, edges[65],
+             None, edges[56], None, edges[22], None],
+            [edges[4], edges[31], edges[44], edges[60], edges[66],
+             edges[71], edges[64], edges[55], edges[38], edges[21], None],
+            [edges[5], None, edges[45], None, edges[67], None,
+             edges[70], None, edges[54], None, edges[20], None],
+            # TODO: 5 more rows
+        ]
 
     @staticmethod
     def _get_vertices_from_tile_coords(vertex_matrix: List[List[Optional[Vertex]]], tile_coords: Tuple[int, int]) -> List[Vertex]:
