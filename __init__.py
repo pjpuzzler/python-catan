@@ -102,7 +102,6 @@ class DevelopmentCard:
 @dataclass
 class Player:
 
-    color: Color
     resource_amounts: list[int] = field(default_factory=lambda: [0] * 5)
     development_cards: list[DevelopmentCard] = field(default_factory=list)
     buildings_left: list[int] = field(default_factory=lambda: [5, 4])
@@ -175,8 +174,8 @@ class Catan(_CatanBoard):
 
         super().__init__()
 
-        self.players = {player_color: Player(
-            player_color) for player_color in player_colors}
+        self.players = {player_color: Player()
+                        for player_color in player_colors}
         self.turns = player_colors
 
         self._resources = [19] * 5
@@ -557,7 +556,7 @@ class Catan(_CatanBoard):
 
         total_resource_amount = 0
 
-        for other_player_color, other_player in self.players:
+        for other_player_color, other_player in self.players.items():
 
             if other_player_color != player_color:
 
@@ -570,6 +569,31 @@ class Catan(_CatanBoard):
 
         self._modify_resources(
             player_color, {resource_type: +total_resource_amount})
+
+    def play_road_building(self, player_color: Color, edge_idx_1: EdgeIdx, edge_idx_2: EdgeIdx) -> None:
+        """
+        Plays a road building.
+
+        :param player_color: The color of the player.
+        :param edge_idx_1: The index of the first edge.
+        :param edge_idx_2: The index of the second edge.
+        """
+
+        assert player_color in self.players, f"Color must be one of {tuple(self.players)}, got {player_color}."
+
+        assert self.turn == player_color, f"Turn must be {player_color}, is {self.turn}."
+
+        player = self.players[player_color]
+
+        assert DevelopmentCard(
+            ROAD_BUILDING, True) in player.development_cards, f"Player must have a road building bought on a previous turn to play a road building."
+
+        player.development_cards.remove(DevelopmentCard(ROAD_BUILDING, True))
+
+        # TODO: assert both before building
+
+        self.build_road(player_color, edge_idx_1)
+        self.build_road(player_color, edge_idx_2)
 
     def produce_resources(self, roll: Roll) -> None:
         """
