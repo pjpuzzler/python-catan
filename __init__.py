@@ -1,6 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from random import choices, randint, shuffle
+from typing import Sequence
 
 Color = int
 COLORS = (BLUE, ORANGE, RED, WHITE) = range(4)
@@ -102,9 +103,10 @@ class DevelopmentCard:
 @dataclass
 class Player:
 
-    resource_amounts: list[int] = field(default_factory=lambda: [0] * 5)
+    resource_amounts: list[int, int, int, int, int] = field(
+        default_factory=lambda: [0] * 5)
     development_cards: list[DevelopmentCard] = field(default_factory=list)
-    buildings_left: list[int] = field(default_factory=lambda: [5, 4])
+    buildings_left: list[int, int] = field(default_factory=lambda: [5, 4])
     roads_left: int = 15
     harbor_types: set[HarborType] = field(default_factory=set)
     knights_played: int = 0
@@ -137,19 +139,19 @@ class _CatanBoard:  # TODO: Everything lol gl
         harbor_types = BASE_HARBOR_TYPES[:]
         shuffle(harbor_types)
 
-        self._vertices = [Vertex(harbor_type=harbor_types[_CatanBoard._VERTEX_IDX_TO_HARBOR_IDX[vertex_idx]]
-                                 if vertex_idx in _CatanBoard._VERTEX_IDX_TO_HARBOR_IDX else None) for vertex_idx in VERTEX_IDXS]
+        self.vertices = [Vertex(harbor_type=harbor_types[_CatanBoard._VERTEX_IDX_TO_HARBOR_IDX[vertex_idx]]
+                                if vertex_idx in _CatanBoard._VERTEX_IDX_TO_HARBOR_IDX else None) for vertex_idx in VERTEX_IDXS]
 
-        self._edges = [Edge() for _ in EDGE_IDXS]
+        self.edges = [Edge() for _ in EDGE_IDXS]
 
         tile_types = BASE_TILE_TYPES[:]
         shuffle(tile_types)
 
-        self._tiles = ...
+        self.tiles = []
 
         desert_idx = tile_types.index(DESERT)
-        self._token_to_tile = {roll: tuple(self._tiles[tile_idx + 1 if tile_idx >= desert_idx else tile_idx]
-                                           for tile_idx in tile_idxs) for roll, tile_idxs in _CatanBoard._BASE_TOKEN_TO_TILE_IDXS.items()}
+        self.token_to_tile = {roll: tuple(self.tiles[tile_idx + 1 if tile_idx >= desert_idx else tile_idx]
+                                          for tile_idx in tile_idxs) for roll, tile_idxs in _CatanBoard._BASE_TOKEN_TO_TILE_IDXS.items()}
 
 
 class Catan(_CatanBoard):
@@ -157,10 +159,17 @@ class Catan(_CatanBoard):
     Represents the game Catan.
     """
 
+    development_cards: list[DevelopmentCard]
+    edges: tuple[Edge]
+    largest_army_player_color: Color | None
+    longest_road_player_color: Color | None
     players: dict[Color, Player]
-    turns: list[Color]
+    resource_amounts: list[int]
+    tiles: tuple[Tile]
+    turns: tuple[Color]
+    vertices: tuple[Vertex]
 
-    def __init__(self, player_colors: list[Color]) -> None:
+    def __init__(self, player_colors: Sequence[Color]) -> None:
         """
         Creates an instance of a Catan game.
 
@@ -176,19 +185,18 @@ class Catan(_CatanBoard):
 
         self.players = {player_color: Player()
                         for player_color in player_colors}
-        self.turns = player_colors
-
-        self._resources = [19] * 5
-        self._development_cards = [DevelopmentCard(
+        self.turns = tuple(player_colors)
+        self.resource_amounts = [19] * 5
+        self.development_cards = [DevelopmentCard(
             development_card_type) for development_card_type in BASE_DEVELOPMENT_CARD_TYPES]
-        shuffle(self._development_cards)
-        self._largest_army_player_color = None
-        self._longest_road_player_color = None
+        shuffle(self.development_cards)
+        self.largest_army_player_color = None
+        self.longest_road_player_color = None
 
     def _build_road(self, player_color: Color, edge_idx: EdgeIdx) -> None:
 
         player = self.players[player_color]
-        edge = self._edges[edge_idx]
+        edge = self.edges[edge_idx]
 
         player.roads_left -= 1
 
@@ -202,20 +210,20 @@ class Catan(_CatanBoard):
             player.longest_road = max(
                 player.longest_road, edge.adj_vertices[i].longest_road)
 
-        if player.longest_road >= 5 and (self._longest_road_player_color is None or self._longest_road_player_color != player_color and player.longest_road > self.players[self._longest_road_player_color].longest_road):
+        if player.longest_road >= 5 and (self.longest_road_player_color is None or self.longest_road_player_color != player_color and player.longest_road > self.players[self.longest_road_player_color].longest_road):
 
-            if self._longest_road_player_color is not None:
+            if self.longest_road_player_color is not None:
 
-                self.players[self._longest_road_player_color].victory_points -= 2
+                self.players[self.longest_road_player_color].victory_points -= 2
 
-            self._longest_road_player_color = player_color
+            self.longest_road_player_color = player_color
 
             player.victory_points += 2
 
     def _build_settlement(self, player_color: Color, vertex_idx: VertexIdx) -> None:
 
         player = self.players[player_color]
-        vertex = self._vertices[vertex_idx]
+        vertex = self.vertices[vertex_idx]
 
         player.buildings_left[SETTLEMENT] -= 1
 
@@ -233,7 +241,7 @@ class Catan(_CatanBoard):
 
             self.players[player_color].resource_amounts[resource_type] += resource_amount
 
-            self._resources[resource_type] -= resource_amount
+            self.resource_amounts[resource_type] -= resource_amount
 
     def build_road(self, player_color: Color, edge_idx: EdgeIdx) -> None:
         """
@@ -251,7 +259,7 @@ class Catan(_CatanBoard):
 
         assert player.roads_left > 0, f"Player does not have any roads left."
 
-        edge = self._edges[edge_idx]
+        edge = self.edges[edge_idx]
 
         assert edge.road is None, f"Edge must be unoccupied to build a road."
 
@@ -284,7 +292,7 @@ class Catan(_CatanBoard):
 
         assert player.buildings_left[SETTLEMENT] > 0, f"Player does not have any settlements left."
 
-        vertex = self._vertices[vertex_idx]
+        vertex = self.vertices[vertex_idx]
 
         assert vertex.building is None, f"Vertex must be unoccupied to build a settlement."
 
@@ -322,7 +330,7 @@ class Catan(_CatanBoard):
 
         assert player.buildings_left[SETTLEMENT] > 0, f"Player does not have any settlements left."
 
-        vertex = self._vertices[vertex_idx]
+        vertex = self.vertices[vertex_idx]
 
         assert vertex.building is None, f"Vertex must be unoccupied to build a settlement."
 
@@ -330,11 +338,11 @@ class Catan(_CatanBoard):
             adj_vertex.building is None for adj_vertex in vertex.adj_vertices), f"Vertex must have no adjacent buildings to build a settlement."
 
         assert any(
-            self._edges[edge_idx] is adj_edge for adj_edge in vertex.adj_edges), f"Road must be built adjacent to the settlement."
+            self.edges[edge_idx] is adj_edge for adj_edge in vertex.adj_edges), f"Road must be built adjacent to the settlement."
 
         assert player.roads_left > 0, f"Player does not have any roads left."
 
-        edge = self._edges[edge_idx]
+        edge = self.edges[edge_idx]
 
         assert edge.road is None, f"Edge must be unoccupied to build a road."
 
@@ -356,7 +364,7 @@ class Catan(_CatanBoard):
 
         assert self.turn == player_color, f"Turn must be {player_color}, is {self.turn}."
 
-        assert self._development_cards, f"There are no development cards left."
+        assert self.development_cards, f"There are no development cards left."
 
         player = self.players[player_color]
         costs = {GRAIN: 1, WOOL: 1, ORE: 1}
@@ -367,7 +375,7 @@ class Catan(_CatanBoard):
         self._modify_resources(
             player_color, {resource_type: -cost for resource_type, cost in costs})
 
-        development_card = self._development_cards.pop()
+        development_card = self.development_cards.pop()
         player.development_cards.append(development_card)
 
         if development_card.development_card_type == VICTORY_POINT:
@@ -476,9 +484,9 @@ class Catan(_CatanBoard):
 
         assert self.turn == player_color, f"Turn must be {player_color}, is {self.turn}."
 
-        assert robber_idx != self._robber_idx, f"Robber must not be on the same tile."
+        assert robber_idx != self.robber_idx, f"Robber must not be on the same tile."
 
-        tile = self._tiles[robber_idx]
+        tile = self.tiles[robber_idx]
 
         if player_color_to_take_from is not None:
 
@@ -496,10 +504,10 @@ class Catan(_CatanBoard):
             player_to_take_from.resource_amounts[resource_type_to_take] -= 1
             self.players[player_color].resource_amounts[resource_type_to_take] += 1
 
-        self._tiles[self._robber_idx].has_robber = False
+        self.tiles[self.robber_idx].has_robber = False
         tile.has_robber = True
 
-        self._robber_idx = robber_idx
+        self.robber_idx = robber_idx
 
     def play_knight(self, player_color: Color, robber_idx: TileIdx, player_color_to_take_from: Color | None) -> None:
         """
@@ -525,13 +533,13 @@ class Catan(_CatanBoard):
 
         player.knights_played += 1
 
-        if player.knights_played >= 3 and (self._largest_army_player_color is None or self._largest_army_player_color != player_color and player.knights_played > self.players[self._largest_army_player_color].knights_played):
+        if player.knights_played >= 3 and (self.largest_army_player_color is None or self.largest_army_player_color != player_color and player.knights_played > self.players[self.largest_army_player_color].knights_played):
 
-            if self._largest_army_player_color is not None:
+            if self.largest_army_player_color is not None:
 
-                self.players[self._largest_army_player_color].victory_points -= 2
+                self.players[self.largest_army_player_color].victory_points -= 2
 
-            self._largest_army_player_color = player_color
+            self.largest_army_player_color = player_color
 
             player.victory_points += 2
 
@@ -570,13 +578,13 @@ class Catan(_CatanBoard):
         self._modify_resources(
             player_color, {resource_type: +total_resource_amount})
 
-    def play_road_building(self, player_color: Color, edge_idx_1: EdgeIdx, edge_idx_2: EdgeIdx) -> None:
+    def play_road_building(self, player_color: Color, edge_idx_1: EdgeIdx, edge_idx_2: EdgeIdx | None) -> None:
         """
         Plays a road building.
 
         :param player_color: The color of the player.
         :param edge_idx_1: The index of the first edge.
-        :param edge_idx_2: The index of the second edge.
+        :param edge_idx_2: The index of the second edge, or None .
         """
 
         assert player_color in self.players, f"Color must be one of {tuple(self.players)}, got {player_color}."
@@ -585,15 +593,33 @@ class Catan(_CatanBoard):
 
         player = self.players[player_color]
 
+        assert player.roads_left >= (
+            2 if edge_idx_2 is not None else 1), f"Player does not have enough roads left."
+
+        edge_1 = self.edges[edge_idx_1]
+
+        assert edge_1.road is None, f"Edge 1 must be unoccupied to build a road."
+
+        assert any(adj_edge.road == Road(player_color) for adj_edge in edge_1.adj_edges) or any(adj_vertex.building is not None and adj_vertex.building.player_color ==
+                                                                                                player_color for adj_vertex in edge_1.adj_vertices), f"Edge 1 must have an adjacent road, settlement, or city of the same color to build a road."
+
         assert DevelopmentCard(
             ROAD_BUILDING, True) in player.development_cards, f"Player must have a road building bought on a previous turn to play a road building."
 
+        if edge_idx_2 is not None:
+
+            edge_2 = self.edges[edge_idx_2]
+
+            assert edge_2.road is None, f"Edge 2 must be unoccupied to build a road."
+
+            assert any(adj_edge.road == Road(player_color) for adj_edge in edge_2.adj_edges) or any(adj_vertex.building is not None and adj_vertex.building.player_color ==
+                                                                                                    player_color for adj_vertex in edge_2.adj_vertices), f"Edge 2 must have an adjacent road, settlement, or city of the same color to build a road."
+
+            self._build_road(player_color, edge_idx_2)
+
         player.development_cards.remove(DevelopmentCard(ROAD_BUILDING, True))
 
-        # TODO: assert both before building
-
-        self.build_road(player_color, edge_idx_1)
-        self.build_road(player_color, edge_idx_2)
+        self._build_road(player_color, edge_idx_1)
 
     def produce_resources(self, roll: Roll) -> None:
         """
@@ -602,7 +628,7 @@ class Catan(_CatanBoard):
         :param roll: The roll to produce resources for.
         """
 
-        for tile in self._token_to_tile[roll]:
+        for tile in self.token_to_tile[roll]:
 
             if tile.has_robber:
 
@@ -621,13 +647,13 @@ class Catan(_CatanBoard):
                     resource_amounts[building.color] = resource_amounts.get(
                         building.color, 0) + (1 if building.building_type == SETTLEMENT else 2)
 
-            if self._resources[resource_type] < sum(resource_amounts.values()):
+            if self.resource_amounts[resource_type] < sum(resource_amounts.values()):
 
-                if self._resources[resource_type] > 0 and len(resource_amounts) == 1:
+                if self.resource_amounts[resource_type] > 0 and len(resource_amounts) == 1:
 
                     color = tuple(resource_amounts)[0]
                     self._modify_resources(
-                        color, {resource_type: self._resources[resource_type]})
+                        color, {resource_type: self.resource_amounts[resource_type]})
 
                 else:
 
@@ -648,7 +674,7 @@ class Catan(_CatanBoard):
 
         assert player.buildings_left[CITY] > 0, f"Player does not have any cities left."
 
-        vertex = self._vertices[vertex_idx]
+        vertex = self.vertices[vertex_idx]
 
         assert vertex.building == Building(
             color, CITY), f"Vertex must have a settlement of the same color to upgrade settlement."
