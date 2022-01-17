@@ -175,6 +175,10 @@ class _CatanBoard:
             vertex.adj_vertices = self._get_adj_vertices_from_vertex_idx(
                 vertex_idx)
 
+    def __repr__(self) -> str:
+
+        pass  # TODO
+
     def _get_adj_edges_from_edge_idx(self, edge_idx: EdgeIdx) -> tuple[Edge]:
 
         edge_i, edge_j = _CatanBoard._EDGE_COORDS[edge_idx]
@@ -206,7 +210,7 @@ class _CatanBoard:
         raise NotImplementedError  # TODO
 
 
-class Catan(_CatanBoard):  # TODO: scour for errors
+class Catan(_CatanBoard):
     """
     Represents the game Catan.
     """
