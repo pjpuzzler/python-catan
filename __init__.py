@@ -42,7 +42,8 @@ EDGE_IDXS = range(72)
 PlayerIdx = int
 PLAYER_IDXS = range(4)
 
-Roll = int
+Token = int
+TOKENS = range(2, 13)
 
 
 @dataclass
@@ -115,20 +116,20 @@ class Vertex:
 
 class _CatanBoard:
 
-    _BASE_ROLL_TO_TILE_IDXS = {2: (1,), 3: (3, 16), 4: (9, 13), 5: (0, 14), 6: (
-        2, 15), 8: (4, 10), 9: (6, 12), 10: (5, 11), 11: (8, 17), 12: (7,)}
+    _BASE_TOKEN_TO_TILE_IDXS = [None, None, (1,), (3, 16), (9, 13), (
+        0, 14), (2, 15), (4, 10), (6, 12), (5, 11), (8, 17), (7,)]
 
-    _TILE_IDX_TO_ADJ_VERTEX_IDXS = [{0, 1, 30, 47, 28, 29}, {2, 3, 32, 31, 30, 1}, {4, 5, 6, 33, 32, 3}, {6, 7, 8, 35, 34, 33}, {8, 9, 10, 11, 36, 35}, {36, 11, 12, 13, 38, 37}, {38, 13, 14, 15, 16, 39}, {40, 39, 16, 17, 18, 41}, {42, 41, 18, 19, 20, 21}, {
-        44, 43, 42, 21, 22, 23}, {26, 45, 44, 23, 24, 25}, {28, 47, 46, 45, 26, 27}, {30, 31, 48, 53, 46, 47}, {32, 33, 34, 49, 48, 31}, {34, 35, 36, 37, 50, 49}, {50, 37, 38, 39, 40, 51}, {52, 51, 40, 41, 42, 43}, {46, 53, 52, 43, 44, 45}, {48, 49, 50, 51, 52, 53}]
+    _TILE_IDX_TO_ADJ_VERTEX_IDXS = [(0, 1, 30, 47, 28, 29), (2, 3, 32, 31, 30, 1), (4, 5, 6, 33, 32, 3), (6, 7, 8, 35, 34, 33), (8, 9, 10, 11, 36, 35), (36, 11, 12, 13, 38, 37), (38, 13, 14, 15, 16, 39), (40, 39, 16, 17, 18, 41), (42, 41, 18, 19, 20, 21), (
+        44, 43, 42, 21, 22, 23), (26, 45, 44, 23, 24, 25), (28, 47, 46, 45, 26, 27), (30, 31, 48, 53, 46, 47), (32, 33, 34, 49, 48, 31), (34, 35, 36, 37, 50, 49), (50, 37, 38, 39, 40, 51), (52, 51, 40, 41, 42, 43), (46, 53, 52, 43, 44, 45), (48, 49, 50, 51, 52, 53)]
 
-    _VERTEX_IDX_TO_ADJ_EDGE_IDXS = ...  # TODO
+    _VERTEX_IDX_TO_ADJ_EDGE_IDXS = []
 
     _VERTEX_IDX_TO_HARBOR_IDX = [0, None, 1, 1, None, None, 2, 2, None, 3, 3, None,
                                  4, 4, None, None, 5, 5, None, 6, 6, None, 7, 7, None, None, 8, 8, None, 0]
 
     edges: tuple[Edge]
     robber_tile: Tile
-    roll_to_tiles: dict[Roll, tuple[Tile]]
+    token_to_tiles: dict[Token, tuple[Tile]]
     tiles: tuple[Tile]
     vertices: tuple[Vertex]
 
@@ -150,8 +151,8 @@ class _CatanBoard:
 
         self.robber_tile = self.tiles[robber_tile_idx]
 
-        self.roll_to_tiles = {roll: tuple(self.tiles[tile_idx + 1 if tile_idx >= robber_tile_idx else tile_idx]
-                                          for tile_idx in tile_idxs) for roll, tile_idxs in self._BASE_ROLL_TO_TILE_IDXS.items()}
+        self.token_to_tiles = {token: tuple(self.tiles[tile_idx + (tile_idx >= robber_tile_idx)]
+                                            for tile_idx in self._BASE_TOKEN_TO_TILE_IDXS[token]) for token in TOKENS}
 
         for edge_idx, edge in enumerate(self.edges):
 
@@ -195,7 +196,7 @@ class Catan(_CatanBoard):
     resource_amounts: list[int]
     robber_tile: Tile
     tiles: tuple[Tile]
-    roll_to_tiles: dict[Roll, tuple[Tile]]
+    token_to_tiles: dict[Token, tuple[Tile]]
     vertices: tuple[Vertex]
 
     def __init__(self, colors: list[Color]) -> None:
@@ -645,14 +646,14 @@ class Catan(_CatanBoard):
 
         self._modify_resources(player, resource_amounts)
 
-    def produce_resources(self, roll: Roll) -> None:
+    def produce_resources(self, token: Token) -> None:
         """
-        Gives resources to players based on the roll.
+        Gives resources to players based on the token.
 
-        :param roll: The roll to produce resources for.
+        :param token: The token to produce resources for.
         """
 
-        for tile in self.roll_to_tiles[roll]:
+        for tile in self.token_to_tiles[token]:
 
             if tile.has_robber:
 
@@ -752,7 +753,7 @@ class Catan(_CatanBoard):
         return None
 
     @staticmethod
-    def roll_dice() -> Roll:
+    def roll_dice() -> Token:
         """
         Rolls two six-sided dice.
 
