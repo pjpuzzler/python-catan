@@ -4,27 +4,27 @@ from random import choices, randint, shuffle
 from typing import Sequence
 
 Color = int
-COLORS = (BLUE, ORANGE, RED, WHITE) = range(4)
+COLORS = (BLUE, ORANGE, RED, WHITE) = range(1, 5)
 
 BuildingType = bool
 BUILDING_TYPES = (CITY, SETTLEMENT) = [True, False]
 
 HarborType = int
 HARBOR_TYPES = (BRICK_H, LUMBER_H, ORE_H, GRAIN_H,
-                WOOL_H, GENERIC_H) = range(6)
+                WOOL_H, GENERIC_H) = range(1, 7)
 BASE_HARBOR_TYPES = list(HARBOR_TYPES[:-1]) + [GENERIC_H] * 4
 
 TileType = int
-TILE_TYPES = (DESERT, HILLS, FOREST, MOUNTAINS, FIELDS, PASTURE) = range(6)
+TILE_TYPES = (DESERT, HILLS, FOREST, MOUNTAINS, FIELDS, PASTURE) = range(1, 7)
 BASE_TILE_TYPES = [DESERT] + [HILLS] * 3 + [FOREST] * \
     4 + [MOUNTAINS] * 3 + [FIELDS] * 4 + [PASTURE] * 4
 
 ResourceType = int
-RESOURCE_TYPES = (BRICK, LUMBER, ORE, GRAIN, WOOL) = range(5)
+RESOURCE_TYPES = (BRICK, LUMBER, ORE, GRAIN, WOOL) = range(1, 6)
 
 DevelopmentCardType = int
 DEVELOPMENT_CARD_TYPES = (KNIGHT, ROAD_BUILDING,
-                          YEAR_OF_PLENTY, MONOPOLY, VICTORY_POINT) = range(5)
+                          YEAR_OF_PLENTY, MONOPOLY, VICTORY_POINT) = range(1, 6)
 BASE_DEVELOPMENT_CARD_TYPES = [KNIGHT] * 14 + [ROAD_BUILDING] * \
     2 + [YEAR_OF_PLENTY] * 2 + [MONOPOLY] * 2 + [VICTORY_POINT] * 5
 
@@ -58,7 +58,7 @@ class DevelopmentCard:
 
     development_card_type: DevelopmentCardType
 
-    playable: bool = field(default=False, repr=False)
+    playable: bool
 
 
 @dataclass
@@ -66,8 +66,8 @@ class Edge:
 
     road: Road | None = None
 
-    adj_edges: tuple[Edge] | None = field(default=None, repr=False)
-    adj_vertices: tuple[Vertex] | None = field(default=None, repr=False)
+    adj_edges: tuple[Edge] | None = None
+    adj_vertices: tuple[Vertex] | None = None
 
 
 @dataclass
@@ -75,32 +75,29 @@ class Player:
 
     color: Color
 
-    resource_amounts: list[int] = field(
-        default_factory=lambda: [0] * 5, repr=False)
-    development_cards: list[DevelopmentCard] = field(
-        default_factory=list, repr=False)
-    buildings_left: list[int] = field(
-        default_factory=lambda: [5, 4], repr=False)
-    roads_left: int = field(default=15, repr=False)
-    harbor_types: set[HarborType] = field(default_factory=set, repr=False)
-    knights_played: int = field(default=0, repr=False)
-    longest_road: int = field(default=0, repr=False)
-    victory_points: int = field(default=0, repr=False)
+    resource_amounts: list[int] = field(default_factory=lambda: [0] * 5)
+    development_cards: list[DevelopmentCard] = field(default_factory=list)
+    buildings_left: list[int] = field(default_factory=lambda: [5, 4])
+    roads_left: int = 15
+    harbor_types: set[HarborType] = field(default_factory=set)
+    knights_played: int = 0
+    longest_road: int = 0
+    victory_points: int = 0
 
 
-@dataclass
+@dataclass(frozen=True)
 class Road:
 
     color: Color
 
 
-@dataclass()
+@dataclass
 class Tile:
 
     tile_type: TileType
     has_robber: bool = False
 
-    adj_vertices: tuple[Vertex] | None = field(default=None, repr=False)
+    adj_vertices: tuple[Vertex] | None = None
 
 
 @dataclass
@@ -109,32 +106,29 @@ class Vertex:
     building: Building | None = None
     harbor_type: HarborType | None = None
 
-    longest_road: int = field(default=0, repr=False)
-    adj_edges: tuple[Edge] | None = field(default=None, repr=False)
-    adj_tiles: tuple[Tile] | None = field(default=None, repr=False)
-    adj_vertices: tuple[Vertex] | None = field(default=None, repr=False)
+    longest_road: int = 0
+
+    adj_edges: tuple[Edge] | None = None
+    adj_tiles: tuple[Tile] | None = None
+    adj_vertices: tuple[Vertex] | None = None
 
 
 class _CatanBoard:
 
-    _BASE_ROLL_TO_TILE_IDXS: dict[Roll, tuple[TileIdx]] = {2: (1,), 3: (3, 16), 4: (9, 13), 5: (0, 14), 6: (
+    _BASE_ROLL_TO_TILE_IDXS = {2: (1,), 3: (3, 16), 4: (9, 13), 5: (0, 14), 6: (
         2, 15), 8: (4, 10), 9: (6, 12), 10: (5, 11), 11: (8, 17), 12: (7,)}
 
-    _EDGE_COORDS: list[tuple[int]] = [(0, 2), (1, 2), (2, 1), (3, 1), (4, 0), (5, 0), (6, 0), (7, 1), (8, 1), (9, 2), (10, 2), (10, 3), (10, 4), (10, 5), (10, 6), (10, 7), (9, 8), (8, 8), (7, 9), (6, 9), (5, 10), (4, 9), (3, 9), (2, 8), (1, 8), (0, 7), (0, 6), (0, 5), (0, 4), (0, 3), (2, 2), (4, 1), (6, 1), (
-        8, 2), (9, 4), (9, 6), (8, 7), (6, 8), (4, 8), (2, 7), (1, 6), (1, 4), (2, 3), (3, 3), (4, 2), (5, 2), (6, 2), (7, 3), (8, 3), (8, 4), (8, 5), (8, 6), (7, 7), (6, 7), (5, 8), (4, 7), (3, 7), (2, 6), (2, 5), (2, 4), (4, 3), (6, 3), (7, 5), (6, 6), (4, 6), (3, 5), (4, 4), (5, 4), (6, 4), (6, 5), (5, 6), (4, 5)]
+    _TILE_IDX_TO_ADJ_VERTEX_IDXS = [{0, 1, 30, 47, 28, 29}, {2, 3, 32, 31, 30, 1}, {4, 5, 6, 33, 32, 3}, {6, 7, 8, 35, 34, 33}, {8, 9, 10, 11, 36, 35}, {36, 11, 12, 13, 38, 37}, {38, 13, 14, 15, 16, 39}, {40, 39, 16, 17, 18, 41}, {42, 41, 18, 19, 20, 21}, {
+        44, 43, 42, 21, 22, 23}, {26, 45, 44, 23, 24, 25}, {28, 47, 46, 45, 26, 27}, {30, 31, 48, 53, 46, 47}, {32, 33, 34, 49, 48, 31}, {34, 35, 36, 37, 50, 49}, {50, 37, 38, 39, 40, 51}, {52, 51, 40, 41, 42, 43}, {46, 53, 52, 43, 44, 45}, {48, 49, 50, 51, 52, 53}]
 
-    _TILE_COORDS: list[tuple[int]] = [(0, 0), (1, 0), (2, 0), (3, 1), (4, 2), (4, 3), (4, 4), (
-        3, 4), (2, 4), (1, 3), (0, 2), (0, 1), (1, 1), (2, 1), (3, 2), (3, 3), (2, 3), (1, 2), (2, 2)]
+    _VERTEX_IDX_TO_ADJ_EDGE_IDXS = ...  # TODO
 
-    _VERTEX_COORDS: list[tuple[int]] = [(0, 2), (1, 2), (1, 1), (2, 1), (2, 0), (3, 0), (3, 1), (4, 1), (4, 2), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7), (5, 8), (4, 8), (4, 9), (3, 9), (3, 10), (2, 10), (2, 9), (1, 9), (1, 8), (
-        0, 8), (0, 7), (0, 6), (0, 5), (0, 4), (0, 3), (1, 3), (2, 3), (2, 2), (3, 2), (3, 3), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7), (3, 7), (3, 8), (2, 8), (2, 7), (1, 7), (1, 6), (1, 5), (1, 4), (2, 4), (3, 4), (3, 5), (3, 6), (2, 6), (2, 5)]
-
-    _VERTEX_IDX_TO_HARBOR_IDX: dict[VertexIdx, HarborIdx] = {
-        0: 0, 2: 1, 3: 1, 6: 2, 7: 2, 9: 3, 10: 3, 12: 4, 13: 4, 16: 5, 17: 5, 19: 6, 20: 6, 22: 7, 23: 7, 26: 8, 27: 8, 29: 0}
+    _VERTEX_IDX_TO_HARBOR_IDX = {0: 0, 2: 1, 3: 1, 6: 2, 7: 2, 9: 3, 10: 3,
+                                 12: 4, 13: 4, 16: 5, 17: 5, 19: 6, 20: 6, 22: 7, 23: 7, 26: 8, 27: 8, 29: 0}
 
     edges: tuple[Edge]
     robber_tile: Tile
-    roll_to_tile: dict[Roll, tuple[Tile]]
+    roll_to_tiles: dict[Roll, tuple[Tile]]
     tiles: tuple[Tile]
     vertices: tuple[Vertex]
 
@@ -149,65 +143,43 @@ class _CatanBoard:
         self.edges = [Edge() for _ in EDGE_IDXS]
         self.tiles = [Tile(tile_type, has_robber=tile_type == DESERT)
                       for tile_type in tile_types]
-        self.vertices = [Vertex(harbor_type=harbor_types[_CatanBoard._VERTEX_IDX_TO_HARBOR_IDX[vertex_idx]]
-                                if vertex_idx in _CatanBoard._VERTEX_IDX_TO_HARBOR_IDX else None) for vertex_idx in VERTEX_IDXS]
+        self.vertices = [Vertex(harbor_type=harbor_types[self._VERTEX_IDX_TO_HARBOR_IDX[vertex_idx]]
+                                if vertex_idx in self._VERTEX_IDX_TO_HARBOR_IDX else None) for vertex_idx in VERTEX_IDXS]
 
         robber_tile_idx = tile_types.index(DESERT)
 
         self.robber_tile = self.tiles[robber_tile_idx]
 
-        self.roll_to_tile = {roll: tuple(self.tiles[tile_idx + 1 if tile_idx >= robber_tile_idx else tile_idx]
-                                         for tile_idx in tile_idxs) for roll, tile_idxs in _CatanBoard._BASE_ROLL_TO_TILE_IDXS.items()}
+        self.roll_to_tiles = {roll: tuple(self.tiles[tile_idx + 1 if tile_idx >= robber_tile_idx else tile_idx]
+                                          for tile_idx in tile_idxs) for roll, tile_idxs in self._BASE_ROLL_TO_TILE_IDXS.items()}
 
         for edge_idx, edge in enumerate(self.edges):
 
-            edge.adj_edges = self._get_adj_edges_from_edge_idx(edge_idx)
-            edge.adj_vertices = self._get_adj_vertices_from_edge_idx(edge_idx)
+            adj_vertex_idxs = tuple(
+                vertex_idx for vertex_idx in VERTEX_IDXS if edge_idx in self._VERTEX_IDX_TO_ADJ_EDGE_IDXS[vertex_idx])
+
+            edge.adj_vertices = tuple(
+                self.vertices[adj_vertex_idx] for adj_vertex_idx in adj_vertex_idxs)
+            edge.adj_edges = tuple(
+                self.edges[adj_edge_idx] for adj_vertex_idx in adj_vertex_idxs for adj_edge_idx in self._VERTEX_IDX_TO_ADJ_EDGE_IDXS[adj_vertex_idx] if adj_edge_idx != edge_idx)
 
         for tile_idx, tile in enumerate(self.tiles):
 
-            tile.adj_vertices = self._get_adj_vertices_from_tile_idx(tile_idx)
+            tile.adj_vertices = tuple(
+                self.vertices[adj_vertex_idx] for adj_vertex_idx in self._TILE_IDX_TO_ADJ_VERTEX_IDXS[tile_idx])
 
         for vertex_idx, vertex in enumerate(self.vertices):
 
-            vertex.adj_edges = self._get_adj_edges_from_vertex_idx(vertex_idx)
-            vertex.adj_tiles = self._get_adj_tiles_from_vertex_idx(vertex_idx)
-            vertex.adj_vertices = self._get_adj_vertices_from_vertex_idx(
-                vertex_idx)
+            vertex.adj_edges = tuple(
+                self.edges[adj_edge_idx] for adj_edge_idx in self._VERTEX_IDX_TO_ADJ_EDGE_IDXS[vertex_idx])
+            vertex.adj_tiles = tuple(
+                self.tiles[tile_idx] for tile_idx in TILE_IDXS if vertex_idx in self._TILE_IDX_TO_ADJ_VERTEX_IDXS[tile_idx])
+            vertex.adj_vertices = tuple(self.vertices[other_vertex_idx] for adj_edge_idx in self._VERTEX_IDX_TO_ADJ_EDGE_IDXS[vertex_idx]
+                                        for other_vertex_idx in VERTEX_IDXS if adj_edge_idx in self._VERTEX_IDX_TO_ADJ_EDGE_IDXS[other_vertex_idx] and other_vertex_idx != vertex_idx)
 
     def __repr__(self) -> str:
 
-        pass  # TODO
-
-    def _get_adj_edges_from_edge_idx(self, edge_idx: EdgeIdx) -> tuple[Edge]:
-
-        edge_i, edge_j = _CatanBoard._EDGE_COORDS[edge_idx]
-
-        if edge_i % 2 == 1:  # vertical edge
-
-            return tuple(self.edges[adj_edge_i][adj_edge_j] for adj_edge_i, adj_edge_j in ((edge_i - 1, edge_j), (edge_i + 1, edge_j), (edge_i - 1, edge_j - 1), (edge_i + 1, edge_j - 1)) if 0 <= adj_edge_i < 11 and 0 <= adj_edge_j < 11)
-
-        # TODO
-
-    def _get_adj_edges_from_vertex_idx(self, vertex_idx: VertexIdx) -> tuple[Edge]:
-
-        raise NotImplementedError  # TODO
-
-    def _get_adj_tiles_from_vertex_idx(self, vertex_idx: VertexIdx) -> tuple[Tile]:
-
-        raise NotImplementedError  # TODO
-
-    def _get_adj_vertices_from_edge_idx(self, edge_idx: EdgeIdx) -> tuple[Vertex]:
-
-        raise NotImplementedError  # TODO
-
-    def _get_adj_vertices_from_tile_idx(self, tile_idx: TileIdx) -> tuple[Vertex]:
-
-        raise NotImplementedError  # TODO
-
-    def _get_adj_vertices_from_vertex_idx(self, vertex_idx: VertexIdx) -> tuple[Vertex]:
-
-        raise NotImplementedError  # TODO
+        ...  # TODO
 
 
 class Catan(_CatanBoard):
@@ -223,7 +195,7 @@ class Catan(_CatanBoard):
     resource_amounts: list[int]
     robber_tile: Tile
     tiles: tuple[Tile]
-    roll_to_tile: dict[Roll, tuple[Tile]]
+    roll_to_tiles: dict[Roll, tuple[Tile]]
     vertices: tuple[Vertex]
 
     def __init__(self, colors: Sequence[Color]) -> None:
@@ -680,7 +652,7 @@ class Catan(_CatanBoard):
         :param roll: The roll to produce resources for.
         """
 
-        for tile in self.roll_to_tile[roll]:
+        for tile in self.roll_to_tiles[roll]:
 
             if tile.has_robber:
 
@@ -788,3 +760,13 @@ class Catan(_CatanBoard):
         """
 
         return randint(1, 6) + randint(1, 6)
+
+
+def main() -> None:
+
+    ...
+
+
+if __name__ == "__main__":
+
+    main()
