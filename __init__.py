@@ -1,7 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from random import choices, randint, shuffle
-from typing import Sequence
 
 Color = int
 COLORS = (BLUE, ORANGE, RED, WHITE) = range(1, 5)
@@ -103,8 +102,9 @@ class Tile:
 @dataclass
 class Vertex:
 
+    harbor_type: HarborType
+
     building: Building | None = None
-    harbor_type: HarborType | None = None
 
     longest_road: int = 0
 
@@ -123,8 +123,8 @@ class _CatanBoard:
 
     _VERTEX_IDX_TO_ADJ_EDGE_IDXS = ...  # TODO
 
-    _VERTEX_IDX_TO_HARBOR_IDX = {0: 0, 2: 1, 3: 1, 6: 2, 7: 2, 9: 3, 10: 3,
-                                 12: 4, 13: 4, 16: 5, 17: 5, 19: 6, 20: 6, 22: 7, 23: 7, 26: 8, 27: 8, 29: 0}
+    _VERTEX_IDX_TO_HARBOR_IDX = [0, None, 1, 1, None, None, 2, 2, None, 3, 3, None,
+                                 4, 4, None, None, 5, 5, None, 6, 6, None, 7, 7, None, None, 8, 8, None, 0]
 
     edges: tuple[Edge]
     robber_tile: Tile
@@ -143,8 +143,8 @@ class _CatanBoard:
         self.edges = [Edge() for _ in EDGE_IDXS]
         self.tiles = [Tile(tile_type, has_robber=tile_type == DESERT)
                       for tile_type in tile_types]
-        self.vertices = [Vertex(harbor_type=harbor_types[self._VERTEX_IDX_TO_HARBOR_IDX[vertex_idx]]
-                                if vertex_idx in self._VERTEX_IDX_TO_HARBOR_IDX else None) for vertex_idx in VERTEX_IDXS]
+        self.vertices = [Vertex(
+            harbor_type=harbor_types[self._VERTEX_IDX_TO_HARBOR_IDX[vertex_idx]]) for vertex_idx in VERTEX_IDXS]
 
         robber_tile_idx = tile_types.index(DESERT)
 
@@ -198,7 +198,7 @@ class Catan(_CatanBoard):
     roll_to_tiles: dict[Roll, tuple[Tile]]
     vertices: tuple[Vertex]
 
-    def __init__(self, colors: Sequence[Color]) -> None:
+    def __init__(self, colors: list[Color]) -> None:
         """
         Creates an instance of a Catan game.
 
