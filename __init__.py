@@ -3,27 +3,27 @@ from dataclasses import dataclass, field
 from random import choices, randint, shuffle
 
 Color = int
-COLORS = (BLUE, ORANGE, RED, WHITE) = range(1, 5)
+COLORS = (BLUE, ORANGE, RED, WHITE) = range(4)
 
 BuildingType = bool
 BUILDING_TYPES = (CITY, SETTLEMENT) = [True, False]
 
 HarborType = int
 HARBOR_TYPES = (BRICK_H, LUMBER_H, ORE_H, GRAIN_H,
-                WOOL_H, GENERIC_H) = range(1, 7)
+                WOOL_H, GENERIC_H) = range(6)
 BASE_HARBOR_TYPES = list(HARBOR_TYPES[:-1]) + [GENERIC_H] * 4
 
 TileType = int
-TILE_TYPES = (DESERT, HILLS, FOREST, MOUNTAINS, FIELDS, PASTURE) = range(1, 7)
+TILE_TYPES = (DESERT, HILLS, FOREST, MOUNTAINS, FIELDS, PASTURE) = range(6)
 BASE_TILE_TYPES = [DESERT] + [HILLS] * 3 + [FOREST] * \
     4 + [MOUNTAINS] * 3 + [FIELDS] * 4 + [PASTURE] * 4
 
 ResourceType = int
-RESOURCE_TYPES = (BRICK, LUMBER, ORE, GRAIN, WOOL) = range(1, 6)
+RESOURCE_TYPES = (BRICK, LUMBER, ORE, GRAIN, WOOL) = range(5)
 
 DevelopmentCardType = int
 DEVELOPMENT_CARD_TYPES = (KNIGHT, ROAD_BUILDING,
-                          YEAR_OF_PLENTY, MONOPOLY, VICTORY_POINT) = range(1, 6)
+                          YEAR_OF_PLENTY, MONOPOLY, VICTORY_POINT) = range(5)
 BASE_DEVELOPMENT_CARD_TYPES = [KNIGHT] * 14 + [ROAD_BUILDING] * \
     2 + [YEAR_OF_PLENTY] * 2 + [MONOPOLY] * 2 + [VICTORY_POINT] * 5
 
