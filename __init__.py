@@ -316,9 +316,7 @@ class Catan(_CatanBoard):
 
             player.harbor_types.add(vertex.harbor_type)
 
-    def _modify_resources(self, resource_amounts: dict[ResourceType, int]) -> None:
-
-        player = self.turn
+    def _modify_resources(self, player: Player, resource_amounts: dict[ResourceType, int]) -> None:
 
         for resource_type, resource_amount in resource_amounts:
 
@@ -438,6 +436,19 @@ class Catan(_CatanBoard):
         if development_card.development_card_type == DevelopmentCardType.VICTORY_POINT:
 
             player.victory_points += 1
+
+    def discard_half(self, resource_amounts: dict[ResourceType, int]) -> None:
+
+        player = self.turn
+
+        assert all(amount >= player.resource_amounts[resource_type] for resource_type, amount in resource_amounts.items(
+        )), f"Player cannot discard more resources than they have."
+
+        assert sum(resource_amounts.values()) == sum(player.resource_amounts.values(
+        )) // 2, f"Player must discard half of their resources, has {sum(player.resource_amounts.values())}."
+
+        self._modify_resources(player, {
+                               resource_type: -amount for resource_type, amount in resource_amounts.items()})
 
     def domestic_trade(self, resource_amounts_out: dict[ResourceType, int], player_to_trade_with_idx: PlayerIdx, resource_amounts_in: dict[ResourceType, int]) -> None:
         """
@@ -719,7 +730,7 @@ class Catan(_CatanBoard):
 
                     color = tuple(resource_amounts)[0]
                     self._modify_resources(
-                        color, {resource_type: self.resource_amounts[resource_type]})
+                        next(player for player in self.players if player.color == color), {resource_type: self.resource_amounts[resource_type]})
 
                 else:
 
@@ -729,7 +740,8 @@ class Catan(_CatanBoard):
 
                 for color, amount in resource_amounts.items():
 
-                    self._modify_resources(color, {resource_type: amount})
+                    self._modify_resources(next(
+                        player for player in self.players if player.color == color), {resource_type: amount})
 
     def upgrade_settlement(self, vertex_idx: VertexIdx) -> None:
 
