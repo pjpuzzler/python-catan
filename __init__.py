@@ -9,27 +9,35 @@ class Color(Enum):
 
 
 class BuildingType(Enum):
-    CITY, SETTLEMENT = range(2)
+    SETTLEMENT, CITY = range(2)
 
 
-HarborType = int
-HARBOR_TYPES = (BRICK_H, LUMBER_H, ORE_H, GRAIN_H,
-                WOOL_H, GENERIC_H) = range(6)
-BASE_HARBOR_TYPES = list(HARBOR_TYPES[:-1]) + [GENERIC_H] * 4
+class HarborType(Enum):
+    BRICK, LUMBER, ORE, GRAIN, WOOL, GENERIC = range(6)
 
-TileType = int
-TILE_TYPES = (DESERT, HILLS, FOREST, MOUNTAINS, FIELDS, PASTURE) = range(6)
-BASE_TILE_TYPES = [DESERT] + [HILLS] * 3 + [FOREST] * \
-    4 + [MOUNTAINS] * 3 + [FIELDS] * 4 + [PASTURE] * 4
 
-ResourceType = int
-RESOURCE_TYPES = (BRICK, LUMBER, ORE, GRAIN, WOOL) = range(5)
+BASE_HARBOR_TYPES = list(HarborType) + [HarborType.GENERIC] * 3
 
-DevelopmentCardType = int
-DEVELOPMENT_CARD_TYPES = (KNIGHT, ROAD_BUILDING,
-                          YEAR_OF_PLENTY, MONOPOLY, VICTORY_POINT) = range(5)
-BASE_DEVELOPMENT_CARD_TYPES = [KNIGHT] * 14 + [ROAD_BUILDING] * \
-    2 + [YEAR_OF_PLENTY] * 2 + [MONOPOLY] * 2 + [VICTORY_POINT] * 5
+
+class TileType(Enum):
+    DESERT, HILLS, FOREST, MOUNTAINS, FIELDS, PASTURE = range(6)
+
+
+BASE_TILE_TYPES = [TileType.DESERT] + [TileType.HILLS] * 3 + [TileType.FOREST] * \
+    4 + [TileType.MOUNTAINS] * 3 + \
+        [TileType.FIELDS] * 4 + [TileType.PASTURE] * 4
+
+
+class ResourceType(Enum):
+    BRICK, LUMBER, ORE, GRAIN, WOOL = range(5)
+
+
+class DevelopmentCardType(Enum):
+    KNIGHT, ROAD_BUILDING, YEAR_OF_PLENTY, MONOPOLY, VICTORY_POINT = range(5)
+
+
+BASE_DEVELOPMENT_CARD_TYPES = [DevelopmentCardType.KNIGHT] * 14 + [DevelopmentCardType.ROAD_BUILDING] * 2 + [
+    DevelopmentCardType.YEAR_OF_PLENTY] * 2 + [DevelopmentCardType.MONOPOLY] * 2 + [DevelopmentCardType.VICTORY_POINT] * 5
 
 HarborIdx = int
 HARBOR_IDXS = range(9)
@@ -49,10 +57,12 @@ PLAYER_IDXS = range(4)
 Token = int
 TOKENS = range(2, 13)
 
-ROAD_COST = {LUMBER: 1, BRICK: 1}
-SETTLEMENT_COST = {LUMBER: 1, BRICK: 1, GRAIN: 1, WOOL: 1}
-CITY_COST = {GRAIN: 2, ORE: 3}
-DEVELOPMENT_CARD_COST = {GRAIN: 1, WOOL: 1, ORE: 1}
+ROAD_COST = {ResourceType.LUMBER: 1, ResourceType.BRICK: 1}
+SETTLEMENT_COST = {ResourceType.LUMBER: 1, ResourceType.BRICK: 1,
+                   ResourceType.GRAIN: 1, ResourceType.WOOL: 1}
+CITY_COST = {ResourceType.GRAIN: 2, ResourceType.ORE: 3}
+DEVELOPMENT_CARD_COST = {ResourceType.GRAIN: 1,
+                         ResourceType.WOOL: 1, ResourceType.ORE: 1}
 
 
 @dataclass
@@ -86,7 +96,8 @@ class Player:
 
     resource_amounts: list[int] = field(default_factory=lambda: [0] * 5)
     development_cards: list[DevelopmentCard] = field(default_factory=list)
-    buildings_left: list[int] = field(default_factory=lambda: [5, 4])
+    settlements_left: int = 5
+    cities_left: int = 4
     roads_left: int = 15
     harbor_types: set[HarborType] = field(default_factory=set)
     knights_played: int = 0
@@ -152,12 +163,12 @@ class _CatanBoard:
         shuffle(tile_types)
 
         self.edges = [Edge() for _ in EDGE_IDXS]
-        self.tiles = [Tile(tile_type, has_robber=tile_type == DESERT)
+        self.tiles = [Tile(tile_type, has_robber=tile_type == TileType.DESERT)
                       for tile_type in tile_types]
         self.vertices = [Vertex(
             harbor_type=harbor_types[self._VERTEX_IDX_TO_HARBOR_IDX[vertex_idx]]) for vertex_idx in VERTEX_IDXS]
 
-        robber_tile_idx = tile_types.index(DESERT)
+        robber_tile_idx = tile_types.index(TileType.DESERT)
 
         self.robber_tile = self.tiles[robber_tile_idx]
 
@@ -218,8 +229,6 @@ class Catan(_CatanBoard):
 
         assert 2 <= len(
             colors) <= 4, f"Number of colors must be 2-4, got {len(colors)}."
-        assert all(
-            color in Color for color in colors), f"All colors must be one of {tuple(Color)}, got {colors}."
 
         super().__init__()
 
@@ -273,7 +282,7 @@ class Catan(_CatanBoard):
 
         player = self.turn
 
-        player.buildings_left[BuildingType.SETTLEMENT] -= 1
+        player.settlements_left -= 1
 
         vertex.building = Building(player.color, BuildingType.SETTLEMENT)
 
@@ -289,9 +298,9 @@ class Catan(_CatanBoard):
 
         for resource_type, resource_amount in resource_amounts:
 
-            player.resource_amounts[resource_type] += resource_amount
+            player.resource_amounts[resource_type.value] += resource_amount
 
-            self.resource_amounts[resource_type] -= resource_amount
+            self.resource_amounts[resource_type.value] -= resource_amount
 
     def build_road(self, edge_idx: EdgeIdx) -> None:
         """
@@ -312,7 +321,7 @@ class Catan(_CatanBoard):
                                                                                               player.color for adj_vertex in edge.adj_vertices), f"Edge must have an adjacent road, settlement, or city of the same color to build a road."
 
         assert all(player.resource_amounts[resource_type] > cost for resource_type,
-                   cost in ROAD_COST), f"Player must have at least 1 lumber and 1 brick to build a road, has {player.resource_amounts[LUMBER]}l and {player.resource_amounts[BRICK]}b."
+                   cost in ROAD_COST), f"Player must have at least 1 lumber and 1 brick to build a road, has {player.resource_amounts[ResourceType.LUMBER.value]}l and {player.resource_amounts[ResourceType.BRICK.value]}b."
 
         self._modify_resources(
             player, {resource_type: -cost for resource_type, cost in ROAD_COST})
@@ -328,7 +337,7 @@ class Catan(_CatanBoard):
 
         player = self.turn
 
-        assert player.buildings_left[BuildingType.SETTLEMENT] > 0, f"Player does not have any settlements left."
+        assert player.settlements_left > 0, f"Player does not have any settlements left."
 
         vertex = self.vertices[vertex_idx]
 
@@ -341,7 +350,7 @@ class Catan(_CatanBoard):
             adj_vertex.building is None for adj_vertex in vertex.adj_vertices), f"Vertex must have no adjacent buildings to build a settlement."
 
         assert all(player.resource_amounts[resource] > cost for resource,
-                   cost in SETTLEMENT_COST), f"Player must have at least 1 lumber, 1 brick, 1 grain and 1 wool to build a settlement, has {player.resource_amounts[LUMBER]}l, {player.resource_amounts[BRICK]}b, {player.resource_amounts[GRAIN]}g and {player.resource_amounts[WOOL]}w."
+                   cost in SETTLEMENT_COST), f"Player must have at least 1 lumber, 1 brick, 1 grain and 1 wool to build a settlement, has {player.resource_amounts[ResourceType.LUMBER.value]}l, {player.resource_amounts[ResourceType.BRICK.value]}b, {player.resource_amounts[ResourceType.GRAIN.value]}g and {player.resource_amounts[ResourceType.WOOL.value]}w."
 
         self._modify_resources(
             player, {resource_type: -cost for resource_type, cost in SETTLEMENT_COST})
@@ -359,7 +368,7 @@ class Catan(_CatanBoard):
 
         player = self.turn
 
-        assert player.buildings_left[BuildingType.SETTLEMENT] > 0, f"Player does not have any settlements left."
+        assert player.settlements_left > 0, f"Player does not have any settlements left."
 
         vertex = self.vertices[vertex_idx]
 
@@ -384,17 +393,17 @@ class Catan(_CatanBoard):
 
             for adj_tile in vertex.adj_tiles:
 
-                if adj_tile.tile_type != DESERT:
+                if adj_tile.tile_type != TileType.DESERT:
 
                     self._modify_resources(
-                        player, {RESOURCE_TYPES[adj_tile.tile_type - 1]: +1})
+                        player, {ResourceType(adj_tile.tile_type.value - 1): +1})
 
     def buy_development_card(self) -> None:
 
         player = self.turn
 
         assert all(player.resource_amounts[resource] > cost for resource,
-                   cost in DEVELOPMENT_CARD_COST), f"Player must have at least 1 grain, 1 wool, and 1 ore to buy a development card, has {player.resource_amounts[GRAIN]}g, {player.resource_amounts[WOOL]}w and {player.resource_amounts[ORE]}o."
+                   cost in DEVELOPMENT_CARD_COST), f"Player must have at least 1 grain, 1 wool, and 1 ore to buy a development card, has {player.resource_amounts[ResourceType.GRAIN.value]}g, {player.resource_amounts[ResourceType.WOOL.value]}w and {player.resource_amounts[ResourceType.ORE.value]}o."
 
         self._modify_resources(
             player, {resource_type: -cost for resource_type, cost in DEVELOPMENT_CARD_COST})
@@ -402,7 +411,7 @@ class Catan(_CatanBoard):
         development_card = self.development_cards.pop()
         player.development_cards.append(development_card)
 
-        if development_card.development_card_type == VICTORY_POINT:
+        if development_card.development_card_type == DevelopmentCardType.VICTORY_POINT:
 
             player.victory_points += 1
 
@@ -431,9 +440,9 @@ class Catan(_CatanBoard):
         player = self.turn
         player_to_trade_with = self.players[player_to_trade_with_idx]
 
-        assert all(player.resource_amounts[resource_type] >= amount for resource_type, amount in resource_amounts_out.items(
+        assert all(player.resource_amounts[resource_type.value] >= amount for resource_type, amount in resource_amounts_out.items(
         )), f"Player does not have enough resources to trade away, {resource_amounts_out}."
-        assert all(player_to_trade_with.resource_amounts[resource_type] >= amount for resource_type, amount in resource_amounts_in.items(
+        assert all(player_to_trade_with.resource_amounts[resource_type.value] >= amount for resource_type, amount in resource_amounts_in.items(
         )), f"Player to trade with does not have enough resources to trade, {resource_amounts_in}."
 
         for resource_type, amount in resource_amounts_out:
@@ -456,7 +465,7 @@ class Catan(_CatanBoard):
 
         for development_card in self.turn.development_cards:
 
-            if development_card.development_card_type != VICTORY_POINT:
+            if development_card.development_card_type != DevelopmentCardType.VICTORY_POINT:
 
                 development_card.playable = True
 
@@ -477,16 +486,16 @@ class Catan(_CatanBoard):
         player = self.turn
 
         assert player.resource_amounts[
-            resource_type_out] >= resource_amount, f"Player does not have enough resources to trade {resource_amount}, has {player.resource_amounts[resource_type_out]}."
+            resource_type_out.value] >= resource_amount, f"Player does not have enough resources to trade {resource_amount}, has {player.resource_amounts[resource_type_out.value]}."
 
         if resource_amount == 2:
 
-            assert HARBOR_TYPES[
-                resource_type_out] in player.harbor_types, f"Player does not have a harbor of type {HARBOR_TYPES[resource_type_out]}."
+            assert HarborType(
+                resource_type_in.value) in player.harbor_types, f"Player does not have a harbor of type {HarborType(resource_type_in.value)}."
 
         elif resource_amount == 3:
 
-            assert GENERIC_H in player.harbor_types, f"Player does not have a generic harbor."
+            assert HarborType.GENERIC in player.harbor_types, f"Player does not have a generic harbor."
 
         self._modify_resources(player, {resource_type_out: -resource_amount, resource_type_in: +1}
                                if resource_type_out != resource_type_in else {resource_type_out: -resource_amount + 1})
@@ -504,15 +513,15 @@ class Catan(_CatanBoard):
         if color_to_take_from is not None:
 
             assert any(adj_vertex.building is not None and adj_vertex.building.color ==
-                       color_to_take_from for adj_vertex in new_robber_tile.adj_vertices), f"Player {color_to_take_from} does not have any buildilngs on the robber tile."
+                       color_to_take_from for adj_vertex in new_robber_tile.adj_vertices), f"Player {color_to_take_from.name} does not have any buildilngs on the robber tile."
 
-            player_to_take_from = self.players[color_to_take_from]
+            player_to_take_from = self.players[color_to_take_from.value]
 
             assert any(
                 player_to_take_from.resource_amounts), f"Player to take cards from does not have any resources."
 
             resource_type_to_take = choices(
-                RESOURCE_TYPES, player_to_take_from.resource_amounts)
+                list(ResourceType), player_to_take_from.resource_amounts)[0]
 
             player_to_take_from.resource_amounts[resource_type_to_take] -= 1
             self.turn.resource_amounts[resource_type_to_take] += 1
@@ -533,11 +542,12 @@ class Catan(_CatanBoard):
         player = self.turn
 
         assert DevelopmentCard(
-            KNIGHT, True) in player.development_cards, f"Player must have a knight bought on a previous turn to play a knight."
+            DevelopmentCardType.KNIGHT, True) in player.development_cards, f"Player must have a knight bought on a previous turn to play a knight."
 
         self.move_robber(new_robber_tile, color_to_take_from)
 
-        player.development_cards.remove(DevelopmentCard(KNIGHT, True))
+        player.development_cards.remove(
+            DevelopmentCard(DevelopmentCardType.KNIGHT, True))
 
         player.knights_played += 1
 
@@ -561,9 +571,10 @@ class Catan(_CatanBoard):
         player = self.turn
 
         assert DevelopmentCard(
-            MONOPOLY, True) in player.development_cards, f"Player must have a monopoly bought on a previous turn to play a monopoly."
+            DevelopmentCardType.MONOPOLY, True) in player.development_cards, f"Player must have a monopoly bought on a previous turn to play a monopoly."
 
-        player.development_cards.remove(DevelopmentCard(MONOPOLY, True))
+        player.development_cards.remove(
+            DevelopmentCard(DevelopmentCardType.MONOPOLY, True))
 
         total_resource_amount = 0
 
@@ -571,7 +582,7 @@ class Catan(_CatanBoard):
 
             if other_player is not player:
 
-                other_player_resource_amount = other_player.resource_amounts[resource_type]
+                other_player_resource_amount = other_player.resource_amounts[resource_type.value]
 
                 total_resource_amount += other_player_resource_amount
 
@@ -591,7 +602,7 @@ class Catan(_CatanBoard):
         player = self.turn
 
         assert DevelopmentCard(
-            ROAD_BUILDING, True) in player.development_cards, f"Player must have a road building bought on a previous turn to play a road building."
+            DevelopmentCardType.ROAD_BUILDING, True) in player.development_cards, f"Player must have a road building bought on a previous turn to play a road building."
 
         edge_1 = self.edges[edge_idx_1]
 
@@ -615,7 +626,8 @@ class Catan(_CatanBoard):
 
             assert player.roads_left > 0, f"Player does not have any roads left."
 
-        player.development_cards.remove(DevelopmentCard(ROAD_BUILDING, True))
+        player.development_cards.remove(DevelopmentCard(
+            DevelopmentCardType.ROAD_BUILDING, True))
 
         self._build_road(edge_1)
 
@@ -634,19 +646,20 @@ class Catan(_CatanBoard):
         player = self.turn
 
         assert DevelopmentCard(
-            YEAR_OF_PLENTY, True) in player.development_cards, f"Player must have a year of plenty bought on a previous turn to play a year of plenty."
+            DevelopmentCardType.YEAR_OF_PLENTY, True) in player.development_cards, f"Player must have a year of plenty bought on a previous turn to play a year of plenty."
 
-        assert self.resource_amounts[resource_type_1] > 0, f"There are not enough cards to take."
+        assert self.resource_amounts[resource_type_1.value] > 0, f"There are not enough cards to take."
 
         resource_amounts = {resource_type_1: 1}
 
         if resource_type_2 is not None:
 
-            assert self.resource_amounts[resource_type_2] > 0, f"There are not enough cards to take."
+            assert self.resource_amounts[resource_type_2.value] > 0, f"There are not enough cards to take."
 
             resource_amounts[resource_type_2] = 2 if resource_type_2 == resource_type_1 else 1
 
-        player.development_cards.remove(DevelopmentCard(YEAR_OF_PLENTY, True))
+        player.development_cards.remove(DevelopmentCard(
+            DevelopmentCardType.YEAR_OF_PLENTY, True))
 
         self._modify_resources(player, resource_amounts)
 
@@ -663,7 +676,7 @@ class Catan(_CatanBoard):
 
                 continue
 
-            resource_type = RESOURCE_TYPES[tile.tile_type - 1]
+            resource_type = ResourceType(tile.tile_type.value - 1)
 
             resource_amounts = {}
 
@@ -698,7 +711,7 @@ class Catan(_CatanBoard):
 
         player = self.turn
 
-        assert player.buildings_left[BuildingType.CITY] > 0, f"Player does not have any cities left."
+        assert player.cities_left > 0, f"Player does not have any cities left."
 
         vertex = self.vertices[vertex_idx]
 
@@ -706,13 +719,13 @@ class Catan(_CatanBoard):
             player.color), f"Vertex must have a settlement of the same color to upgrade settlement."
 
         assert all(player.resource_amounts[resource_type] > cost for resource_type,
-                   cost in CITY_COST), f"Player must have at least 2 grain and 3 ore to upgrade settlement, has {player.resource_amounts[GRAIN]}g and {player.resource_amounts[ORE]}o."
+                   cost in CITY_COST), f"Player must have at least 2 grain and 3 ore to upgrade settlement, has {player.resource_amounts[ResourceType.GRAIN.value]}g and {player.resource_amounts[ResourceType.ORE.value]}o."
 
         self._modify_resources(
             player, {resource_type: -cost for resource_type, cost in CITY_COST})
 
-        player.buildings_left[BuildingType.SETTLEMENT] += 1
-        player.buildings_left[BuildingType.CITY] -= 1
+        player.settlements_left += 1
+        player.cities_left -= 1
 
         vertex.building.building_type = BuildingType.CITY
 

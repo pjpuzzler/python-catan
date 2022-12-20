@@ -1,1 +1,1 @@
- 
+ResourceType
