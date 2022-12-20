@@ -12,13 +12,6 @@ class BuildingType(Enum):
     SETTLEMENT, CITY = range(2)
 
 
-class HarborType(Enum):
-    BRICK, LUMBER, ORE, GRAIN, WOOL, GENERIC = range(6)
-
-
-BASE_HARBOR_TYPES = list(HarborType) + [HarborType.GENERIC] * 3
-
-
 class TileType(Enum):
     DESERT, HILLS, FOREST, MOUNTAINS, FIELDS, PASTURE = range(6)
 
@@ -26,6 +19,13 @@ class TileType(Enum):
 BASE_TILE_TYPES = [TileType.DESERT] + [TileType.HILLS] * 3 + [TileType.FOREST] * \
     4 + [TileType.MOUNTAINS] * 3 + \
         [TileType.FIELDS] * 4 + [TileType.PASTURE] * 4
+
+
+class HarborType(Enum):
+    BRICK, LUMBER, ORE, GRAIN, WOOL, GENERIC = range(6)
+
+
+BASE_HARBOR_TYPES = list(HarborType) + [HarborType.GENERIC] * 3
 
 
 class ResourceType(Enum):
@@ -68,7 +68,7 @@ DEVELOPMENT_CARD_COST = {ResourceType.GRAIN: 1,
                          ResourceType.WOOL: 1, ResourceType.ORE: 1}
 
 
-@dataclass
+@dataclass(repr=False)
 class Building:
 
     color: Color
@@ -78,7 +78,7 @@ class Building:
         return f'{self.building_type.name}({self.color.name})'
 
 
-@dataclass
+@dataclass(repr=False)
 class DevelopmentCard:
 
     development_card_type: DevelopmentCardType
@@ -89,7 +89,7 @@ class DevelopmentCard:
         return f'DevelopmentCard({self.development_card_type.name})'
 
 
-@dataclass
+@dataclass(repr=False, eq=False)
 class Edge:
 
     road: Road | None = None
@@ -101,7 +101,7 @@ class Edge:
         return f'Edge({self.road})'
 
 
-@dataclass
+@dataclass(repr=False, eq=False)
 class Player:
 
     color: Color
@@ -120,7 +120,7 @@ class Player:
         return f'Player({self.color.name})'
 
 
-@dataclass(frozen=True)
+@dataclass(repr=False, frozen=True)
 class Road:
 
     color: Color
@@ -129,7 +129,7 @@ class Road:
         return f'Road({self.color.name})'
 
 
-@dataclass
+@dataclass(repr=False, eq=False)
 class Tile:
 
     tile_type: TileType
@@ -141,7 +141,7 @@ class Tile:
         return f'Tile({self.tile_type.name}' + (', R)' if self.has_robber else ')')
 
 
-@dataclass
+@dataclass(repr=False, eq=False)
 class Vertex:
 
     harbor_type: HarborType
@@ -174,17 +174,19 @@ class _CatanBoard:
 
     edges: tuple[Edge]
     robber_tile: Tile
-    token_to_tiles: dict[Token, tuple[Tile]]
+    token_to_tiles: list[Token | None]
     tiles: tuple[Tile]
     vertices: tuple[Vertex]
 
-    def __init__(self) -> None:
+    def __init__(self, tile_types: list[TileType] | None = None, harbor_types: list[HarborType] | None = None) -> None:
 
-        harbor_types = BASE_HARBOR_TYPES[:]
-        shuffle(harbor_types)
+        if tile_types is None:
+            tile_types = BASE_TILE_TYPES[:]
+            shuffle(tile_types)
 
-        tile_types = BASE_TILE_TYPES[:]
-        shuffle(tile_types)
+        if harbor_types is None:
+            harbor_types = BASE_HARBOR_TYPES[:]
+            shuffle(harbor_types)
 
         self.edges = [Edge() for _ in EDGE_IDXS]
         self.tiles = [Tile(tile_type, has_robber=tile_type == TileType.DESERT)
@@ -196,8 +198,10 @@ class _CatanBoard:
 
         self.robber_tile = self.tiles[robber_tile_idx]
 
-        self.token_to_tiles = {token: tuple(self.tiles[tile_idx + (tile_idx >= robber_tile_idx)]
-                                            for tile_idx in self._BASE_TOKEN_TO_TILE_IDXS[token]) for token in TOKENS}
+        self.token_to_tiles = [None] * (max(TOKENS) + 1)
+        for token in TOKENS:
+            self.token_to_tiles[token] = tuple(self.tiles[tile_idx + (tile_idx >= robber_tile_idx)]
+                                               for tile_idx in self._BASE_TOKEN_TO_TILE_IDXS[token])
 
         for edge_idx, edge in enumerate(self.edges):
 
@@ -241,10 +245,10 @@ class Catan(_CatanBoard):
     resource_amounts: list[int]
     robber_tile: Tile
     tiles: tuple[Tile]
-    token_to_tiles: dict[Token, tuple[Tile]]
+    token_to_tiles: list[Token | None]
     vertices: tuple[Vertex]
 
-    def __init__(self, colors: list[Color]) -> None:
+    def __init__(self, colors: list[Color], tile_types: list[TileType] | None = None, harbor_types: list[HarborType] | None = None) -> None:
         """
         Creates an instance of a Catan game.
 
@@ -253,8 +257,16 @@ class Catan(_CatanBoard):
 
         assert 2 <= len(
             colors) <= 4, f"Number of colors must be 2-4, got {len(colors)}."
+        assert len(set(colors)) == len(
+            colors), "Colors must be unique."
 
-        super().__init__()
+        assert len(tile_types) == len(BASE_TILE_TYPES) and all(tile_types.count(tile_type) == BASE_TILE_TYPES.count(
+            tile_type) for tile_type in list(TileType)), f"Tile types must have all tiles, got {tile_types}."
+
+        assert len(harbor_types) == len(BASE_HARBOR_TYPES) and all(harbor_types.count(harbor_type) == BASE_HARBOR_TYPES.count(
+            harbor_type) for harbor_type in list(HarborType)), f"Harbor types must have all harbors, got {harbor_types}."
+
+        super().__init__(tile_types, harbor_types)
 
         self.players = [Player(color) for color in colors]
         self.resource_amounts = [19] * 5
@@ -318,7 +330,7 @@ class Catan(_CatanBoard):
 
     def _modify_resources(self, player: Player, resource_amounts: dict[ResourceType, int]) -> None:
 
-        for resource_type, resource_amount in resource_amounts:
+        for resource_type, resource_amount in resource_amounts.items():
 
             player.resource_amounts[resource_type.value] += resource_amount
 
@@ -342,7 +354,7 @@ class Catan(_CatanBoard):
         assert any(adj_edge.road == Road(player.color) for adj_edge in edge.adj_edges) or any(adj_vertex.building is not None and adj_vertex.building.color ==
                                                                                               player.color for adj_vertex in edge.adj_vertices), f"Edge must have an adjacent road, settlement, or city of the same color to build a road."
 
-        assert all(player.resource_amounts[resource_type] > cost for resource_type,
+        assert all(player.resource_amounts[resource_type.value] > cost for resource_type,
                    cost in ROAD_COST), f"Player must have at least 1 lumber and 1 brick to build a road, has {player.resource_amounts[ResourceType.LUMBER.value]}l and {player.resource_amounts[ResourceType.BRICK.value]}b."
 
         self._modify_resources(
@@ -437,11 +449,9 @@ class Catan(_CatanBoard):
 
             player.victory_points += 1
 
-    def discard_half(self, resource_amounts: dict[ResourceType, int]) -> None:
+    def discard_half(self, player: Player, resource_amounts: dict[ResourceType, int]) -> None:
 
-        player = self.turn
-
-        assert all(amount >= player.resource_amounts[resource_type] for resource_type, amount in resource_amounts.items(
+        assert all(amount >= player.resource_amounts[resource_type.value] for resource_type, amount in resource_amounts.items(
         )), f"Player cannot discard more resources than they have."
 
         assert sum(resource_amounts.values()) == sum(player.resource_amounts.values(
@@ -480,14 +490,14 @@ class Catan(_CatanBoard):
         assert all(player_to_trade_with.resource_amounts[resource_type.value] >= amount for resource_type, amount in resource_amounts_in.items(
         )), f"Player to trade with does not have enough resources to trade, {resource_amounts_in}."
 
-        for resource_type, amount in resource_amounts_out:
+        for resource_type, amount in resource_amounts_out.items():
 
-            resource_amounts_in[resource_type] = resource_amounts_in.get(
+            resource_amounts_in[resource_type.value] = resource_amounts_in.get(
                 resource_type, 0) - amount
 
-        for resource_type, amount in resource_amounts_in:
+        for resource_type, amount in resource_amounts_in.items():
 
-            resource_amounts_out[resource_type] = resource_amounts_out.get(
+            resource_amounts_out[resource_type.value] = resource_amounts_out.get(
                 resource_type, 0) - amount
 
         self._modify_resources(player, resource_amounts_in)
@@ -724,13 +734,13 @@ class Catan(_CatanBoard):
                     resource_amounts[building.color] = resource_amounts.get(
                         building.color, 0) + (1 if building.building_type == BuildingType.SETTLEMENT else 2)
 
-            if self.resource_amounts[resource_type] < sum(resource_amounts.values()):
+            if self.resource_amounts[resource_type.value] < sum(resource_amounts.values()):
 
-                if self.resource_amounts[resource_type] > 0 and len(resource_amounts) == 1:
+                if self.resource_amounts[resource_type.value] > 0 and len(resource_amounts) == 1:
 
                     color = tuple(resource_amounts)[0]
                     self._modify_resources(
-                        next(player for player in self.players if player.color == color), {resource_type: self.resource_amounts[resource_type]})
+                        next(player for player in self.players if player.color == color), {resource_type: self.resource_amounts[resource_type.value]})
 
                 else:
 
@@ -754,7 +764,7 @@ class Catan(_CatanBoard):
         assert vertex.building == Building(
             player.color), f"Vertex must have a settlement of the same color to upgrade settlement."
 
-        assert all(player.resource_amounts[resource_type] > cost for resource_type,
+        assert all(player.resource_amounts[resource_type.value] > cost for resource_type,
                    cost in CITY_COST), f"Player must have at least 2 grain and 3 ore to upgrade settlement, has {player.resource_amounts[ResourceType.GRAIN.value]}g and {player.resource_amounts[ResourceType.ORE.value]}o."
 
         self._modify_resources(
@@ -816,9 +826,26 @@ class Catan(_CatanBoard):
 
 def main() -> None:
 
-    catan = Catan([Color.BLUE, Color.RED])
+    catan = Catan([Color.BLUE, Color.RED], [TileType.FOREST, TileType.HILLS, TileType.MOUNTAINS, TileType.FIELDS, TileType.FOREST, TileType.FIELDS, TileType.FIELDS, TileType.MOUNTAINS, TileType.HILLS, TileType.FIELDS, TileType.PASTURE, TileType.FOREST, TileType.DESERT, TileType.MOUNTAINS,
+                  TileType.PASTURE, TileType.PASTURE, TileType.PASTURE, TileType.HILLS, TileType.FOREST], [HarborType.ORE, HarborType.GENERIC, HarborType.BRICK, HarborType.GENERIC, HarborType.GRAIN, HarborType.WOOL, HarborType.GENERIC, HarborType.LUMBER, HarborType.GENERIC])
 
-    print(catan.turn)
+    catan.build_set_up_phase(33, 46)
+    catan.end_turn()
+
+    catan.build_set_up_phase(51, 63)
+    catan.build_set_up_phase(36, 49, round_two=True)
+    catan.end_turn()
+
+    catan.build_set_up_phase(45, 57, round_two=True)
+
+    roll = catan.roll_dice()
+    if roll == 7:
+        for player in catan.players:
+            if sum(player.resource_amounts) > 7:
+                raise NotImplementedError
+                catan.discard_half(player, {})  # TODO
+    else:
+        catan.produce_resources(roll)
 
 
 if __name__ == "__main__":
