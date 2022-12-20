@@ -55,7 +55,10 @@ PlayerIdx = int
 PLAYER_IDXS = range(4)
 
 Token = int
-TOKENS = range(2, 13)
+TOKENS = [*range(2, 7), *range(8, 13)]
+
+Roll = int
+ROLLS = range(2, 13)
 
 ROAD_COST = {ResourceType.LUMBER: 1, ResourceType.BRICK: 1}
 SETTLEMENT_COST = {ResourceType.LUMBER: 1, ResourceType.BRICK: 1,
@@ -71,13 +74,19 @@ class Building:
     color: Color
     building_type: BuildingType = BuildingType.SETTLEMENT
 
+    def __repr__(self) -> str:
+        return f'{self.building_type.name}({self.color.name})'
+
 
 @dataclass
 class DevelopmentCard:
 
     development_card_type: DevelopmentCardType
 
-    playable: bool
+    playable: bool = False
+
+    def __repr__(self) -> str:
+        return f'DevelopmentCard({self.development_card_type.name})'
 
 
 @dataclass
@@ -87,6 +96,9 @@ class Edge:
 
     adj_edges: tuple[Edge] | None = None
     adj_vertices: tuple[Vertex] | None = None
+
+    def __repr__(self) -> str:
+        return f'Edge({self.road})'
 
 
 @dataclass
@@ -104,11 +116,17 @@ class Player:
     longest_road: int = 0
     victory_points: int = 0
 
+    def __repr__(self) -> str:
+        return f'Player({self.color.name})'
+
 
 @dataclass(frozen=True)
 class Road:
 
     color: Color
+
+    def __repr__(self) -> str:
+        return f'Road({self.color.name})'
 
 
 @dataclass
@@ -118,6 +136,9 @@ class Tile:
     has_robber: bool = False
 
     adj_vertices: tuple[Vertex] | None = None
+
+    def __repr__(self) -> str:
+        return f'Tile({self.tile_type.name}' + (', R)' if self.has_robber else ')')
 
 
 @dataclass
@@ -133,11 +154,14 @@ class Vertex:
     adj_tiles: tuple[Tile] | None = None
     adj_vertices: tuple[Vertex] | None = None
 
+    def __repr__(self) -> str:
+        return f'Vertex({self.building})'
+
 
 class _CatanBoard:
 
     _BASE_TOKEN_TO_TILE_IDXS = [None, None, (1,), (3, 16), (9, 13), (
-        0, 14), (2, 15), (4, 10), (6, 12), (5, 11), (8, 17), (7,)]
+        0, 14), (2, 15), None, (4, 10), (6, 12), (5, 11), (8, 17), (7,)]
 
     _TILE_IDX_TO_ADJ_VERTEX_IDXS = [(0, 1, 30, 47, 28, 29), (2, 3, 32, 31, 30, 1), (4, 5, 6, 33, 32, 3), (6, 7, 8, 35, 34, 33), (8, 9, 10, 11, 36, 35), (36, 11, 12, 13, 38, 37), (38, 13, 14, 15, 16, 39), (40, 39, 16, 17, 18, 41), (42, 41, 18, 19, 20, 21), (
         44, 43, 42, 21, 22, 23), (26, 45, 44, 23, 24, 25), (28, 47, 46, 45, 26, 27), (30, 31, 48, 53, 46, 47), (32, 33, 34, 49, 48, 31), (34, 35, 36, 37, 50, 49), (50, 37, 38, 39, 40, 51), (52, 51, 40, 41, 42, 43), (46, 53, 52, 43, 44, 45), (48, 49, 50, 51, 52, 53)]
@@ -166,7 +190,7 @@ class _CatanBoard:
         self.tiles = [Tile(tile_type, has_robber=tile_type == TileType.DESERT)
                       for tile_type in tile_types]
         self.vertices = [Vertex(
-            harbor_type=harbor_types[self._VERTEX_IDX_TO_HARBOR_IDX[vertex_idx]]) for vertex_idx in VERTEX_IDXS]
+            harbor_type=harbor_types[self._VERTEX_IDX_TO_HARBOR_IDX[vertex_idx]] if vertex_idx < len(self._VERTEX_IDX_TO_HARBOR_IDX) and self._VERTEX_IDX_TO_HARBOR_IDX[vertex_idx] is not None else None) for vertex_idx in VERTEX_IDXS]
 
         robber_tile_idx = tile_types.index(TileType.DESERT)
 
@@ -213,7 +237,7 @@ class Catan(_CatanBoard):
     edges: tuple[Edge]
     largest_army_player: Player | None
     longest_road_player: Player | None
-    players: tuple[Player]
+    players: list[Player]
     resource_amounts: list[int]
     robber_tile: Tile
     tiles: tuple[Tile]
@@ -232,7 +256,7 @@ class Catan(_CatanBoard):
 
         super().__init__()
 
-        self.players = tuple(Player(color) for color in colors)
+        self.players = [Player(color) for color in colors]
         self.resource_amounts = [19] * 5
         self.development_cards = [DevelopmentCard(
             development_card_type) for development_card_type in BASE_DEVELOPMENT_CARD_TYPES]
@@ -768,7 +792,7 @@ class Catan(_CatanBoard):
         return None
 
     @staticmethod
-    def roll_dice() -> Token:
+    def roll_dice() -> Roll:
         """
         Rolls two six-sided dice.
 
@@ -780,7 +804,9 @@ class Catan(_CatanBoard):
 
 def main() -> None:
 
-    ...
+    catan = Catan([Color.BLUE, Color.RED])
+
+    print(catan.turn)
 
 
 if __name__ == "__main__":
