@@ -119,6 +119,9 @@ class Player:
     def __repr__(self) -> str:
         return f'Player({self.color.name})'
 
+    def resource_cards(self) -> str:
+        return ' '.join(f"{resource_type.name} x{amount}" for resource_type, amount in zip(ResourceType, self.resource_amounts) if amount > 0)
+
 
 @dataclass(repr=False, frozen=True)
 class Road:
@@ -253,6 +256,8 @@ class Catan(_CatanBoard):
         Creates an instance of a Catan game.
 
         :param colors: The colors of the players (in the order of their turns).
+        :param tile_types: The (optional) types of tiles to use (must have all tiles).
+        :param harbor_types: The (optional) types of harbors to use (must have all harbors).
         """
 
         assert 2 <= len(
@@ -450,6 +455,12 @@ class Catan(_CatanBoard):
             player.victory_points += 1
 
     def discard_half(self, player: Player, resource_amounts: dict[ResourceType, int]) -> None:
+        """
+        Discards half of a player's resources.
+
+        :param player: The player to discard resources for.
+        :param resource_amounts: The amounts of resources to discard.
+        """
 
         assert all(amount >= player.resource_amounts[resource_type.value] for resource_type, amount in resource_amounts.items(
         )), f"Player cannot discard more resources than they have."
@@ -460,17 +471,19 @@ class Catan(_CatanBoard):
         self._modify_resources(player, {
                                resource_type: -amount for resource_type, amount in resource_amounts.items()})
 
-    def domestic_trade(self, resource_amounts_out: dict[ResourceType, int], player_to_trade_with_idx: PlayerIdx, resource_amounts_in: dict[ResourceType, int]) -> None:
+    def domestic_trade(self, resource_amounts_out: dict[ResourceType, int], color_to_trade_with: Color, resource_amounts_in: dict[ResourceType, int]) -> None:
         """
         Trades resources between two players.
 
         :param resource_amounts_out: The amounts of resources the player is trading away.
-        :param player_to_trade_with_idx: The index of the player to trade with.
+        :param color_to_trade_with: The color of the player to trade with.
         :param resource_amounts_in: The amounts of resources the player is receiving.
         """
 
-        assert 1 <= player_to_trade_with_idx < len(
-            self.players), f"Player to trade with index must be one of {tuple(range(1, len(self.players)))}, got {player_to_trade_with_idx}."
+        player = self.turn
+
+        assert color_to_trade_with in [other_player.color for other_player in self.players if other_player.color !=
+                                       player.color], f"Player to trade with must be in the game."
 
         assert all(amount > 0 for amount in resource_amounts_out.values(
         )), f"Player 1's resource amounts must all be positive, got {resource_amounts_out}."
@@ -482,8 +495,8 @@ class Catan(_CatanBoard):
         assert len(
             resource_amounts_in) > 0, f"Player 2 must trade at least 1 resource."
 
-        player = self.turn
-        player_to_trade_with = self.players[player_to_trade_with_idx]
+        player_to_trade_with = next(
+            player for player in self.players if player.color == color_to_trade_with)
 
         assert all(player.resource_amounts[resource_type.value] >= amount for resource_type, amount in resource_amounts_out.items(
         )), f"Player does not have enough resources to trade away, {resource_amounts_out}."
@@ -545,13 +558,15 @@ class Catan(_CatanBoard):
         self._modify_resources(player, {resource_type_out: -resource_amount, resource_type_in: +1}
                                if resource_type_out != resource_type_in else {resource_type_out: -resource_amount + 1})
 
-    def move_robber(self, new_robber_tile: Tile, color_to_take_from: Color | None) -> None:
+    def move_robber(self, new_robber_tile_idx: TileIdx, color_to_take_from: Color | None) -> None:
         """
         Moves the robber.
 
-        :param new_robber_tile: The tile to move the robber to.
+        :param new_robber_tile_idx: The index of the tile to move the robber to.
         :param color_to_take_from: The color of the player to take cards from.
         """
+
+        new_robber_tile = self.tiles[new_robber_tile_idx]
 
         assert new_robber_tile is not self.robber_tile, f"Robber must not be on the same tile."
 
@@ -560,7 +575,8 @@ class Catan(_CatanBoard):
             assert any(adj_vertex.building is not None and adj_vertex.building.color ==
                        color_to_take_from for adj_vertex in new_robber_tile.adj_vertices), f"Player {color_to_take_from.name} does not have any buildilngs on the robber tile."
 
-            player_to_take_from = self.players[color_to_take_from.value]
+            player_to_take_from = next(
+                player for player in self.players if player.color == color_to_take_from)
 
             assert any(
                 player_to_take_from.resource_amounts), f"Player to take cards from does not have any resources."
@@ -576,14 +592,15 @@ class Catan(_CatanBoard):
 
         self.robber_tile = new_robber_tile
 
-    def play_knight(self, new_robber_tile: Tile, color_to_take_from: Color | None) -> None:
+    def play_knight(self, new_robber_tile_idx: TileIdx, color_to_take_from: Color | None) -> None:
         """
         Plays a knight development card.
 
-        :param new_robber_tile: The tile to move the robber to.
+        :param new_robber_tile_idx: The index of the tile to move the robber to.
         :param color_to_take_from: The color of the player to take cards from.
         """
 
+        new_robber_tile = self.tiles[new_robber_tile_idx]
         player = self.turn
 
         assert DevelopmentCard(
@@ -841,9 +858,26 @@ def main() -> None:
     roll = catan.roll_dice()
     if roll == 7:
         for player in catan.players:
-            if sum(player.resource_amounts) > 7:
-                raise NotImplementedError
-                catan.discard_half(player, {})  # TODO
+            num_resources = sum(player.resource_amounts)
+            if num_resources > 7:
+                num_to_discard = num_resources // 2
+                print(f"{player} must discard {num_to_discard} resources.")
+                resource_amounts = {}
+                for _ in range(num_to_discard):
+                    resource_type_char = input("Resource type: ").lower()
+                    resource_type = ResourceType(
+                        [resource_type.name[0] for resource_type in ResourceType].index(resource_type_char))
+                    resource_amounts[resource_type] = resource_amounts.get(
+                        resource_type, 0) + 1
+                catan.discard_half(player, resource_amounts)
+
+        color_to_take_from_char = input(
+            "Color to take from (enter for none): ")
+        color_to_take_from = Color(
+            [color.name[0] for color in Color].index(color_to_take_from_char)) if color_to_take_from_char else None
+        catan.move_robber(int(input("Move robber to tile: ")),
+                          color_to_take_from)
+
     else:
         catan.produce_resources(roll)
 
