@@ -857,13 +857,18 @@ def main() -> None:
 
     roll = catan.roll_dice()
     if roll == 7:
+
         for player in catan.players:
+
             num_resources = sum(player.resource_amounts)
             if num_resources > 7:
+
                 num_to_discard = num_resources // 2
                 print(f"{player} must discard {num_to_discard} resources.")
                 resource_amounts = {}
+
                 for _ in range(num_to_discard):
+
                     resource_type_char = input("Resource type: ").lower()
                     resource_type = ResourceType(
                         [resource_type.name[0] for resource_type in ResourceType].index(resource_type_char))
@@ -871,15 +876,18 @@ def main() -> None:
                         resource_type, 0) + 1
                 catan.discard_half(player, resource_amounts)
 
+        new_robber_tile_idx = int(input("Move robber to tile: "))
         color_to_take_from_char = input(
             "Color to take from (enter for none): ")
         color_to_take_from = Color(
             [color.name[0] for color in Color].index(color_to_take_from_char)) if color_to_take_from_char else None
-        catan.move_robber(int(input("Move robber to tile: ")),
-                          color_to_take_from)
+        catan.move_robber(new_robber_tile_idx, color_to_take_from)
 
     else:
+
         catan.produce_resources(roll)
+
+    # ...
 
 
 if __name__ == "__main__":
