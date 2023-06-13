@@ -16,16 +16,6 @@ class TileType(Enum):
     DESERT, HILLS, FOREST, MOUNTAINS, FIELDS, PASTURE = range(6)
 
 
-TILE_TYPE_TO_CHAR = [
-    "D",
-    "B",
-    "L",
-    "O",
-    "G",
-    "W",
-]
-
-
 BASE_TILE_TYPES = (
     [TileType.DESERT]
     + [TileType.HILLS] * 3
@@ -79,6 +69,29 @@ TOKENS = [*range(2, 7), *range(8, 13)]
 
 Roll = int
 ROLLS = range(2, 13)
+
+COLOR_CODES = [
+    "\x1b[38;2;26;110;219m",
+    "\x1b[38;2;219;126;26m",
+    "\x1b[38;2;222;29;29m",
+    "\x1b[38;2;255;255;255m",
+]
+HARBOR_TYPE_CHARS = [
+    "\x1b[38;2;199;97;54mBrk\033[0m",
+    "\x1b[38;2;99;70;52mLum\033[0m",
+    "\x1b[38;2;84;84;84mOre\033[0m",
+    "\x1b[38;2;235;218;40mGrn\033[0m",
+    "\x1b[38;2;186;186;186mWol\033[0m",
+    "\x1b[38;2;16;108;194m?\033[0m",
+]
+TILE_TYPE_CHARS = [
+    "\x1b[38;2;219;202;123mDes\033[0m",
+    "\x1b[38;2;217;124;30mHil\033[0m",
+    "\x1b[38;2;25;120;22mFor\033[0m",
+    "\x1b[38;2;150;150;150mMnt\033[0m",
+    "\x1b[38;2;235;218;40mFld\033[0m",
+    "\x1b[38;2;103;235;80mPas\033[0m",
+]
 
 ROAD_COST = {ResourceType.LUMBER: 1, ResourceType.BRICK: 1}
 SETTLEMENT_COST = {
@@ -196,17 +209,39 @@ class _CatanBoard:
     _BASE_TOKEN_TO_TILE_IDXS = [
         None,
         None,
-        (1,),
-        (3, 16),
-        (9, 13),
-        (0, 14),
-        (2, 15),
+        (11,),
+        (9, 14),
+        (3, 17),
+        (0, 16),
+        (10, 15),
         None,
-        (4, 10),
+        (2, 8),
         (6, 12),
-        (5, 11),
-        (8, 17),
-        (7,),
+        (1, 7),
+        (4, 13),
+        (5,),
+    ]
+
+    _COUNTER_CLOCKWISE_TILE_IDXS = [
+        0,
+        11,
+        10,
+        9,
+        8,
+        7,
+        6,
+        5,
+        4,
+        3,
+        2,
+        1,
+        12,
+        17,
+        16,
+        15,
+        14,
+        13,
+        18,
     ]
 
     _TILE_IDX_TO_ADJ_VERTEX_IDXS = [
@@ -350,13 +385,19 @@ class _CatanBoard:
         ]
 
         robber_tile_idx = tile_types.index(TileType.DESERT)
-
         self.robber_tile = self.tiles[robber_tile_idx]
 
         self.token_to_tiles = [None] * (max(TOKENS) + 1)
         for token in TOKENS:
             self.token_to_tiles[token] = tuple(
-                self.tiles[tile_idx + (tile_idx >= robber_tile_idx)]
+                self.tiles[
+                    self._COUNTER_CLOCKWISE_TILE_IDXS[
+                        self._COUNTER_CLOCKWISE_TILE_IDXS.index(tile_idx) + 1
+                    ]
+                    if self._COUNTER_CLOCKWISE_TILE_IDXS[tile_idx]
+                    >= self._COUNTER_CLOCKWISE_TILE_IDXS[robber_tile_idx]
+                    else tile_idx
+                ]
                 for tile_idx in self._BASE_TOKEN_TO_TILE_IDXS[token]
             )
 
@@ -401,86 +442,136 @@ class _CatanBoard:
                 and other_vertex_idx != vertex_idx
             )
 
-    def _get_edge_chars(
-        self, edge_idxs: tuple[EdgeIdx], default_chars: str
-    ) -> list[str]:
-        edge_chars = []
+    def _get_edge_char(self, edge_idx: EdgeIdx, default_char: str) -> str:
+        edge = self.edges[edge_idx]
+        return (
+            f"{COLOR_CODES[edge.road.color.value]}{default_char}\033[0m"
+            if edge.road is not None
+            else f"\033[2m{default_char}\033[0m"
+        )
 
-        for edge_idx, default_char in zip(edge_idxs, default_chars):
-            edge = self.edges[edge_idx]
-            if edge.road is not None:
-                edge_chars.append(edge.road.color.name[0].lower())
-            else:
-                edge_chars.append(default_char)
+    def _get_harbor_char(self, harbor_type: HarborType) -> str:
+        return HARBOR_TYPE_CHARS[harbor_type.value]
 
-        return edge_chars
+    def _get_tile_char(self, tile_idx: TileIdx) -> str:
+        tile = self.tiles[tile_idx]
+        return TILE_TYPE_CHARS[tile.tile_type.value] + ("*" if tile.has_robber else " ")
 
-    def _get_tile_chars(self, tile_idxs: tuple[TileIdx]) -> list[str]:
-        tile_chars = []
+    def _get_token_char(self, tile_idx: TileIdx) -> str:
+        for token in TOKENS:
+            if self.tiles[tile_idx] in self.token_to_tiles[token]:
+                return f"({token}) ".rjust(5)
+        return "     "
 
-        for tile_idx in tile_idxs:
-            tile = self.tiles[tile_idx]
-            token_str = "   "
-            for token in TOKENS:
-                for token_tile in self.token_to_tiles[token]:
-                    if token_tile is tile:
-                        token_str = f"{token:2d} "
-                        break
-            tile_chars.append(
-                token_str
-                + TILE_TYPE_TO_CHAR[tile.tile_type.value]
-                + (" r" if tile.has_robber else "  ")
-            )
-
-        return tile_chars
-
-    def _get_vertex_chars(self, vertex_idxs: tuple[VertexIdx]) -> list[str]:
-        vertex_chars = []
-
-        for vertex_idx in vertex_idxs:
-            vertex = self.vertices[vertex_idx]
-            if vertex.building is not None:
-                color_char = vertex.building.color.name[0].lower()
-                vertex_chars.append(
-                    color_char.upper()
-                    if vertex.building.building_type is BuildingType.CITY
-                    else color_char
-                )
-            else:
-                vertex_chars.append("*")
-
-        return vertex_chars
+    def _get_vertex_char(self, vertex_idx: VertexIdx) -> str:
+        vertex = self.vertices[vertex_idx]
+        return (
+            f"{COLOR_CODES[vertex.building.color.value]}{'X' if vertex.building.building_type is BuildingType.CITY else 'x'}\033[0m"
+            if vertex.building is not None
+            else "\033[2m.\033[0m"
+        )
 
     def __str__(self) -> str:
-        bs = "\\"
-
-        return "\n\n\n".join(
+        # fmt: off
+        return ''.join(
             (
-                f"{'{}               {}               {}'.format(*self._get_vertex_chars((0, 2, 4))):^81}",
-                f"{'{}         {}     {}         {}     {}         {}'.format(*self._get_edge_chars((0, 1, 2, 3, 4, 5), ('/', bs, '/', bs, '/', bs))):^81}",
-                f"{'{}               {}               {}               {}'.format(*self._get_vertex_chars((29, 1, 3, 5))):^81}",
-                f"{'{0}    {4}     {1}    {5}     {2}    {6}     {3}'.format(*self._get_edge_chars((29, 30, 31, 6), ('|', '|', '|', '|')), *self._get_tile_chars((0, 1, 2))):^81}",
-                f"{'{}               {}               {}               {}'.format(*self._get_vertex_chars((28, 30, 32, 6))):^81}",
-                f"{'{}         {}     {}         {}     {}         {}     {}         {}'.format(*self._get_edge_chars((28, 41, 42, 43, 44, 45, 32, 7), ('/', bs, '/', bs, '/', bs, '/', bs))):^81}",
-                f"{'{}               {}               {}               {}               {}'.format(*self._get_vertex_chars((27, 47, 31, 33, 7))):^81}",
-                f"{'{0}    {5}     {1}    {6}     {2}    {7}     {3}    {8}     {4}'.format(*self._get_edge_chars((27, 59, 60, 46, 8), ('|', '|', '|', '|', '|')), *self._get_tile_chars((11, 12, 13, 3))):^81}",
-                f"{'{}               {}               {}               {}               {}'.format(*self._get_vertex_chars((26, 46, 48, 34, 8))):^81}",
-                f"{'{}         {}     {}         {}     {}         {}     {}         {}     {}         {}'.format(*self._get_edge_chars((26, 40, 58, 65, 66, 67, 61, 47, 33, 9), ('/', bs, '/', bs, '/', bs, '/', bs, '/', bs))):^81}",
-                f"{'{}               {}               {}               {}               {}               {}'.format(*self._get_vertex_chars((25, 45, 53, 49, 35, 9))):^81}",
-                f"{'{0}    {6}     {1}    {7}     {2}    {8}     {3}    {9}     {4}    {10}     {5}'.format(*self._get_edge_chars((25, 57, 71, 68, 48, 10), ('|', '|', '|', '|', '|', '|')), *self._get_tile_chars((10, 17, 18, 14, 4))):^81}",
-                f"{'{}               {}               {}               {}               {}               {}'.format(*self._get_vertex_chars((24, 44, 52, 50, 36, 10))):^81}",
-                f"{'{}         {}     {}         {}     {}         {}     {}         {}     {}         {}'.format(*self._get_edge_chars((24, 39, 56, 64, 70, 69, 62, 49, 34, 11), (bs, '/', bs, '/', bs, '/', bs, '/', bs, '/'))):^81}",
-                f"{'{}               {}               {}               {}               {}'.format(*self._get_vertex_chars((23, 43, 51, 37, 11))):^81}",
-                f"{'{0}    {5}     {1}    {6}     {2}    {7}     {3}    {8}     {4}'.format(*self._get_edge_chars((23, 55, 63, 50, 12), ('|', '|', '|', '|', '|')), *self._get_tile_chars((9, 16, 15, 5))):^81}",
-                f"{'{}               {}               {}               {}               {}'.format(*self._get_vertex_chars((22, 42, 40, 38, 12))):^81}",
-                f"{'{}         {}     {}         {}     {}         {}     {}         {}'.format(*self._get_edge_chars((22, 38, 54, 53, 52, 51, 35, 13), (bs, '/', bs, '/', bs, '/', bs, '/'))):^81}",
-                f"{'{}               {}               {}               {}'.format(*self._get_vertex_chars((21, 41, 39, 13))):^81}",
-                f"{'{0}    {4}     {1}    {5}     {2}    {6}     {3}'.format(*self._get_edge_chars((21, 37, 36, 14), ('|', '|', '|', '|')), *self._get_tile_chars((6, 7, 8))):^81}",
-                f"{'{}               {}               {}               {}'.format(*self._get_vertex_chars((20, 18, 16, 14))):^81}",
-                f"{'{}         {}     {}         {}     {}         {}'.format(*self._get_edge_chars((20, 19, 18, 17, 16, 15), (bs, '/', bs, '/', bs, '/'))):^81}",
-                f"{'{}               {}               {}'.format(*self._get_vertex_chars((19, 17, 15))):^81}",
+                '                        {}               {}               {}'.format(*(self._get_vertex_char(vertex_idx) for vertex_idx in (0, 2, 4))),
+                '\n',
+                '\n',
+                '\n',
+                '                   {}         {}     {}         {}     {}         {}'.format(*(self._get_edge_char(edge_idx, default_char) for edge_idx, default_char in zip((0, 1, 2, 3, 4, 5), ('/', '\\', '/', '\\', '/', '\\')))),
+                '\n',
+                '\n',
+                '\n',
+                '                {}               {}               {}               {}'.format(*(self._get_vertex_char(vertex_idx) for vertex_idx in (29, 1, 3, 5))),
+                '\n',
+                '\n',
+                '                      {}           {}           {}'.format(*(self._get_token_char(tile_idx) for tile_idx in (0, 1, 2))),
+                '\n',
+                '                {0}      {4}     {1}      {5}     {2}      {6}     {3}'.format(*(self._get_edge_char(edge_idx, default_char) for edge_idx, default_char in zip((29, 30, 31, 6), ('|', '|', '|', '|'))), *(self._get_tile_char(tile_idx) for tile_idx in (0, 1, 2))),
+                '\n',
+                '\n',
+                '\n',
+                '                {}               {}               {}               {}'.format(*(self._get_vertex_char(vertex_idx) for vertex_idx in (28, 30, 32, 6))),
+                '\n',
+                '\n',
+                '\n',
+                '           {}         {}     {}         {}     {}         {}     {}         {}'.format(*(self._get_edge_char(edge_idx, default_char) for edge_idx, default_char in zip((28, 41, 42, 43, 44, 45, 32, 7), ('/', '\\', '/', '\\', '/', '\\', '/', '\\')))),
+                '\n',
+                '\n',
+                '\n',
+                '        {}               {}               {}               {}               {}'.format(*(self._get_vertex_char(vertex_idx) for vertex_idx in (27, 47, 31, 33, 7))),
+                '\n',
+                '\n',
+                '              {}           {}           {}           {}'.format(*(self._get_token_char(tile_idx) for tile_idx in (11, 12, 13, 3))),
+                '\n',
+                '        {0}      {5}     {1}      {6}     {2}      {7}     {3}      {8}     {4}'.format(*(self._get_edge_char(edge_idx, default_char) for edge_idx, default_char in zip((27, 59, 60, 46, 8), ('|', '|', '|', '|', '|'))), *(self._get_tile_char(tile_idx) for tile_idx in (11, 12, 13, 3))),
+                '\n',
+                '\n',
+                '\n',
+                '        {}               {}               {}               {}               {}'.format(*(self._get_vertex_char(vertex_idx) for vertex_idx in (26, 46, 48, 34, 8))),
+                '\n',
+                '\n',
+                '\n',
+                '   {}         {}     {}         {}     {}         {}     {}         {}     {}         {}'.format(*(self._get_edge_char(edge_idx, default_char) for edge_idx, default_char in zip((26, 40, 58, 65, 66, 67, 61, 47, 33, 9), ('/', '\\', '/', '\\', '/', '\\', '/', '\\', '/', '\\')))),
+                '\n',
+                '\n',
+                '\n',
+                '{}               {}               {}               {}               {}               {}'.format(*(self._get_vertex_char(vertex_idx) for vertex_idx in (25, 45, 53, 49, 35, 9))),
+                '\n',
+                '\n',
+                '      {}           {}           {}           {}           {}'.format(*(self._get_token_char(tile_idx) for tile_idx in (10, 17, 18, 14, 4))),
+                '\n',
+                '{0}      {6}     {1}      {7}     {2}      {8}     {3}      {9}     {4}      {10}     {5}'.format(*(self._get_edge_char(edge_idx, default_char) for edge_idx, default_char in zip((25, 57, 71, 68, 48, 10), ('|', '|', '|', '|', '|', '|'))), *(self._get_tile_char(tile_idx) for tile_idx in (10, 17, 18, 14, 4))),
+                '\n',
+                '\n',
+                '\n',
+                '{}               {}               {}               {}               {}               {}'.format(*(self._get_vertex_char(vertex_idx) for vertex_idx in (24, 44, 52, 50, 36, 10))),
+                '\n',
+                '\n',
+                '\n',
+                '   {}         {}     {}         {}     {}         {}     {}         {}     {}         {}'.format(*(self._get_edge_char(edge_idx, default_char) for edge_idx, default_char in zip((24, 39, 56, 64, 70, 69, 62, 49, 34, 11), ('\\', '/', '\\', '/', '\\', '/', '\\', '/', '\\', '/')))),
+                '\n',
+                '\n',
+                '\n',
+                '        {}               {}               {}               {}               {}'.format(*(self._get_vertex_char(vertex_idx) for vertex_idx in (23, 43, 51, 37, 11))),
+                '\n',
+                '\n',
+                '              {}           {}           {}           {}'.format(*(self._get_token_char(tile_idx) for tile_idx in (9, 16, 15, 5))),
+                '\n',
+                '        {0}      {5}     {1}      {6}     {2}      {7}     {3}      {8}     {4}'.format(*(self._get_edge_char(edge_idx, default_char) for edge_idx, default_char in zip((23, 55, 63, 50, 12), ('|', '|', '|', '|', '|'))), *(self._get_tile_char(tile_idx) for tile_idx in (9, 16, 15, 5))),
+                '\n',
+                '\n',
+                '\n',
+                '        {}               {}               {}               {}               {}'.format(*(self._get_vertex_char(vertex_idx) for vertex_idx in (22, 42, 40, 38, 12))),
+                '\n',
+                '\n',
+                '\n',
+                '           {}         {}     {}         {}     {}         {}     {}         {}'.format(*(self._get_edge_char(edge_idx, default_char) for edge_idx, default_char in zip((22, 38, 54, 53, 52, 51, 35, 13), ('\\', '/', '\\', '/', '\\', '/', '\\', '/')))),
+                '\n',
+                '\n',
+                '\n',
+                '                {}               {}               {}               {}'.format(*(self._get_vertex_char(vertex_idx) for vertex_idx in (21, 41, 39, 13))),
+                '\n',
+                '\n',
+                '                      {}           {}           {}'.format(*(self._get_token_char(tile_idx) for tile_idx in (8, 7, 6))),
+                '\n',
+                '                {0}      {4}     {1}      {5}     {2}      {6}     {3}'.format(*(self._get_edge_char(edge_idx, default_char) for edge_idx, default_char in zip((21, 37, 36, 14), ('|', '|', '|', '|'))), *(self._get_tile_char(tile_idx) for tile_idx in (8, 7, 6))),
+                '\n',
+                '\n',
+                '\n',
+                '                {}               {}               {}               {}'.format(*(self._get_vertex_char(vertex_idx) for vertex_idx in (20, 18, 16, 14))),
+                '\n',
+                '\n',
+                '\n',
+                '                   {}         {}     {}         {}     {}         {}'.format(*(self._get_edge_char(edge_idx, default_char) for edge_idx, default_char in zip((20, 19, 18, 17, 16, 15), ('\\', '/', '\\', '/', '\\', '/')))),
+                '\n',
+                '\n',
+                '\n',
+                '                        {}               {}               {}'.format(*(self._get_vertex_char(vertex_idx) for vertex_idx in (19, 17, 15))),
             )
         )
+        # fmt: on
 
 
 class Catan(_CatanBoard):
@@ -518,15 +609,17 @@ class Catan(_CatanBoard):
         ), f"Number of colors must be 2-4, got {len(colors)}."
         assert len(set(colors)) == len(colors), "Colors must be unique."
 
-        assert len(tile_types) == len(BASE_TILE_TYPES) and all(
-            tile_types.count(tile_type) == BASE_TILE_TYPES.count(tile_type)
-            for tile_type in list(TileType)
-        ), f"Tile types must have all tiles, got {tile_types}."
+        if tile_types is not None:
+            assert len(tile_types) == len(BASE_TILE_TYPES) and all(
+                tile_types.count(tile_type) == BASE_TILE_TYPES.count(tile_type)
+                for tile_type in list(TileType)
+            ), f"Tile types must have all tiles, got {tile_types}."
 
-        assert len(harbor_types) == len(BASE_HARBOR_TYPES) and all(
-            harbor_types.count(harbor_type) == BASE_HARBOR_TYPES.count(harbor_type)
-            for harbor_type in list(HarborType)
-        ), f"Harbor types must have all harbors, got {harbor_types}."
+        if harbor_types is not None:
+            assert len(harbor_types) == len(BASE_HARBOR_TYPES) and all(
+                harbor_types.count(harbor_type) == BASE_HARBOR_TYPES.count(harbor_type)
+                for harbor_type in list(HarborType)
+            ), f"Harbor types must have all harbors, got {harbor_types}."
 
         super().__init__(tile_types, harbor_types)
 
@@ -625,11 +718,11 @@ class Catan(_CatanBoard):
 
         player = self.turn
 
-        assert player.roads_left > 0, f"Player does not have any roads left."
+        assert player.roads_left > 0, "Player does not have any roads left."
 
         edge = self.edges[edge_idx]
 
-        assert edge.road is None, f"Edge must be unoccupied to build a road."
+        assert edge.road is None, "Edge must be unoccupied to build a road."
 
         assert any(
             adj_edge.road == Road(player.color) for adj_edge in edge.adj_edges
@@ -637,7 +730,7 @@ class Catan(_CatanBoard):
             adj_vertex.building is not None
             and adj_vertex.building.color is player.color
             for adj_vertex in edge.adj_vertices
-        ), f"Edge must have an adjacent road, settlement, or city of the same color to build a road."
+        ), "Edge must have an adjacent road, settlement, or city of the same color to build a road."
 
         assert all(
             player.resource_amounts[resource_type.value] >= cost
@@ -659,27 +752,25 @@ class Catan(_CatanBoard):
 
         player = self.turn
 
-        assert (
-            player.settlements_left > 0
-        ), f"Player does not have any settlements left."
+        assert player.settlements_left > 0, "Player does not have any settlements left."
 
         vertex = self.vertices[vertex_idx]
 
         assert (
             vertex.building is None
-        ), f"Vertex must be unoccupied to build a settlement."
+        ), "Vertex must be unoccupied to build a settlement."
 
         assert any(
             adj_edge.road == Road(player.color) for adj_edge in vertex.adj_edges
-        ), f"Vertex must have an adjacent road of the same color to build a settlement."
+        ), "Vertex must have an adjacent road of the same color to build a settlement."
 
         assert all(
             adj_vertex.building is None for adj_vertex in vertex.adj_vertices
-        ), f"Vertex must have no adjacent buildings to build a settlement."
+        ), "Vertex must have no adjacent buildings to build a settlement."
 
         assert all(
-            player.resource_amounts[resource] >= cost
-            for resource, cost in SETTLEMENT_COST.items()
+            player.resource_amounts[resource_type.value] >= cost
+            for resource_type, cost in SETTLEMENT_COST.items()
         ), f"Player must have at least 1 lumber, 1 brick, 1 grain and 1 wool to build a settlement, has {player.resource_amounts[ResourceType.LUMBER.value]}l, {player.resource_amounts[ResourceType.BRICK.value]}b, {player.resource_amounts[ResourceType.GRAIN.value]}g and {player.resource_amounts[ResourceType.WOOL.value]}w."
 
         self._modify_resources(
@@ -702,29 +793,27 @@ class Catan(_CatanBoard):
 
         player = self.turn
 
-        assert (
-            player.settlements_left > 0
-        ), f"Player does not have any settlements left."
+        assert player.settlements_left > 0, "Player does not have any settlements left."
 
         vertex = self.vertices[vertex_idx]
 
         assert (
             vertex.building is None
-        ), f"Vertex must be unoccupied to build a settlement."
+        ), "Vertex must be unoccupied to build a settlement."
 
         assert all(
             adj_vertex.building is None for adj_vertex in vertex.adj_vertices
-        ), f"Vertex must have no adjacent buildings to build a settlement."
+        ), "Vertex must have no adjacent buildings to build a settlement."
 
-        assert player.roads_left > 0, f"Player does not have any roads left."
+        assert player.roads_left > 0, "Player does not have any roads left."
 
         edge = self.edges[edge_idx]
 
-        assert any(
-            adj_edge is edge for adj_edge in vertex.adj_edges
-        ), f"Road must be built adjacent to the settlement."
+        assert (
+            edge in vertex.adj_edges
+        ), "Road must be built adjacent to the settlement."
 
-        assert edge.road is None, f"Edge must be unoccupied to build a road."
+        assert edge.road is None, "Edge must be unoccupied to build a road."
 
         self._build_settlement(vertex)
         self._build_road(edge)
@@ -771,7 +860,7 @@ class Catan(_CatanBoard):
         assert all(
             amount >= player.resource_amounts[resource_type.value]
             for resource_type, amount in resource_amounts.items()
-        ), f"Player cannot discard more resources than they have."
+        ), "Player cannot discard more resources than they have."
 
         assert (
             sum(resource_amounts.values()) == sum(player.resource_amounts.values()) // 2
@@ -804,8 +893,8 @@ class Catan(_CatanBoard):
         assert color_to_trade_with in [
             other_player.color
             for other_player in self.players
-            if other_player.color != player.color
-        ], f"Player to trade with must be in the game."
+            if other_player.color is not player.color
+        ], "Player to trade with must be in the game."
 
         assert all(
             amount > 0 for amount in resource_amounts_out.values()
@@ -814,10 +903,8 @@ class Catan(_CatanBoard):
             amount > 0 for amount in resource_amounts_in.values()
         ), f"Player 2's resource amounts must all be positive, got {resource_amounts_in}."
 
-        assert (
-            len(resource_amounts_out) > 0
-        ), f"Player 1 must trade at least 1 resource."
-        assert len(resource_amounts_in) > 0, f"Player 2 must trade at least 1 resource."
+        assert len(resource_amounts_out) > 0, "Player 1 must trade at least 1 resource."
+        assert len(resource_amounts_in) > 0, "Player 2 must trade at least 1 resource."
 
         player_to_trade_with = next(
             player for player in self.players if player.color is color_to_trade_with
@@ -873,6 +960,8 @@ class Catan(_CatanBoard):
         :param resource_type_in: The type of resource the player is trading in.
         """
 
+        # TODO: Remove resource_amount
+
         assert resource_amount in (
             2,
             3,
@@ -916,7 +1005,7 @@ class Catan(_CatanBoard):
 
         assert (
             new_robber_tile is not self.robber_tile
-        ), f"Robber must not be on the same tile."
+        ), "Robber must not be on the same tile."
 
         if color_to_take_from is not None:
             assert any(
@@ -931,7 +1020,7 @@ class Catan(_CatanBoard):
 
             assert any(
                 player_to_take_from.resource_amounts
-            ), f"Player to take cards from does not have any resources."
+            ), "Player to take cards from does not have any resources."
 
             resource_type_to_take = choices(
                 list(ResourceType), player_to_take_from.resource_amounts
@@ -960,7 +1049,7 @@ class Catan(_CatanBoard):
         assert (
             DevelopmentCard(DevelopmentCardType.KNIGHT, True)
             in player.development_cards
-        ), f"Player must have a knight bought on a previous turn to play a knight."
+        ), "Player must have a knight bought on a previous turn to play a knight."
 
         self.move_robber(new_robber_tile_idx, color_to_take_from)
 
@@ -994,7 +1083,7 @@ class Catan(_CatanBoard):
         assert (
             DevelopmentCard(DevelopmentCardType.MONOPOLY, True)
             in player.development_cards
-        ), f"Player must have a monopoly bought on a previous turn to play a monopoly."
+        ), "Player must have a monopoly bought on a previous turn to play a monopoly."
 
         player.development_cards.remove(
             DevelopmentCard(DevelopmentCardType.MONOPOLY, True)
@@ -1031,11 +1120,11 @@ class Catan(_CatanBoard):
         assert (
             DevelopmentCard(DevelopmentCardType.ROAD_BUILDING, True)
             in player.development_cards
-        ), f"Player must have a road building bought on a previous turn to play a road building."
+        ), "Player must have a road building bought on a previous turn to play a road building."
 
         edge_1 = self.edges[edge_idx_1]
 
-        assert edge_1.road is None, f"Edge 1 must be unoccupied to build a road."
+        assert edge_1.road is None, "Edge 1 must be unoccupied to build a road."
 
         assert any(
             adj_edge.road == Road(player.color) for adj_edge in edge_1.adj_edges
@@ -1043,14 +1132,12 @@ class Catan(_CatanBoard):
             adj_vertex.building is not None
             and adj_vertex.building.color is player.color
             for adj_vertex in edge_1.adj_vertices
-        ), f"Edge 1 must have an adjacent road, settlement, or city of the same color to build a road."
+        ), "Edge 1 must have an adjacent road, settlement, or city of the same color to build a road."
 
         if edge_idx_2 is not None:
-            assert player.roads_left >= 2, f"Player does not have enough roads left."
-
             edge_2 = self.edges[edge_idx_2]
 
-            assert edge_2.road is None, f"Edge 2 must be unoccupied to build a road."
+            assert edge_2.road is None, "Edge 2 must be unoccupied to build a road."
 
             assert any(
                 adj_edge.road == Road(player.color) or adj_edge is edge_1
@@ -1088,11 +1175,11 @@ class Catan(_CatanBoard):
         assert (
             DevelopmentCard(DevelopmentCardType.YEAR_OF_PLENTY, True)
             in player.development_cards
-        ), f"Player must have a year of plenty bought on a previous turn to play a year of plenty."
+        ), "Player must have a year of plenty bought on a previous turn to play a year of plenty."
 
         assert (
             self.resource_amounts[resource_type_1.value] > 0
-        ), f"There are not enough cards to take."
+        ), "There are not enough cards to take."
 
         resource_amounts = {resource_type_1: 1}
 
@@ -1164,13 +1251,13 @@ class Catan(_CatanBoard):
     def upgrade_settlement(self, vertex_idx: VertexIdx) -> None:
         player = self.turn
 
-        assert player.cities_left > 0, f"Player does not have any cities left."
+        assert player.cities_left > 0, "Player does not have any cities left."
 
         vertex = self.vertices[vertex_idx]
 
         assert vertex.building == Building(
             player.color
-        ), f"Vertex must have a settlement of the same color to upgrade settlement."
+        ), "Vertex must have a settlement of the same color to upgrade settlement."
 
         assert all(
             player.resource_amounts[resource_type.value] >= cost
@@ -1238,24 +1325,24 @@ def main() -> None:
         [Color.BLUE, Color.RED],
         [
             TileType.FOREST,
-            TileType.HILLS,
-            TileType.MOUNTAINS,
-            TileType.FIELDS,
-            TileType.FOREST,
-            TileType.FIELDS,
             TileType.FIELDS,
             TileType.MOUNTAINS,
             TileType.HILLS,
             TileType.FIELDS,
             TileType.PASTURE,
             TileType.FOREST,
+            TileType.PASTURE,
+            TileType.FIELDS,
+            TileType.HILLS,
+            TileType.FOREST,
+            TileType.PASTURE,
+            TileType.MOUNTAINS,
+            TileType.HILLS,
+            TileType.FOREST,
+            TileType.MOUNTAINS,
+            TileType.PASTURE,
             TileType.DESERT,
-            TileType.MOUNTAINS,
-            TileType.PASTURE,
-            TileType.PASTURE,
-            TileType.PASTURE,
-            TileType.HILLS,
-            TileType.FOREST,
+            TileType.FIELDS,
         ],
         [
             HarborType.ORE,
@@ -1269,23 +1356,11 @@ def main() -> None:
             HarborType.GENERIC,
         ],
     )
-
-    catan.players[0].resource_amounts = [15, 15, 15, 15, 15]
-    catan.build_set_up_phase(0, 0)
-    catan.build_road(1)
-    catan.build_road(29)
-    catan.build_road(41)
-    catan.build_road(42)
-    catan.build_road(43)
-    catan.build_road(44)
+    catan.build_set_up_phase(0, 1)
+    catan.players[0].resource_amounts = [100] * 5
     catan.build_road(2)
-    catan.build_road(3)
-    catan.build_road(31)
-    catan.build_road(30)
-    catan.build_road(59)
-    catan.build_road(58)
+    catan.build_settlement(2)
     print(catan)
-    print(catan.players[0].longest_road)
 
 
 if __name__ == "__main__":
