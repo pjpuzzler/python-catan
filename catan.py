@@ -79,11 +79,11 @@ COLOR_CODES = [
     "\x1b[38;2;255;255;255m",
 ]
 HARBOR_TYPE_CHARS = [
-    "\x1b[38;2;199;97;54mBrk\033[0m",
-    "\x1b[38;2;99;70;52mLum\033[0m",
-    "\x1b[38;2;84;84;84mOre\033[0m",
-    "\x1b[38;2;235;218;40mGrn\033[0m",
-    "\x1b[38;2;186;186;186mWol\033[0m",
+    "\x1b[38;2;199;97;54mB\033[0m",
+    "\x1b[38;2;99;70;52mL\033[0m",
+    "\x1b[38;2;84;84;84mO\033[0m",
+    "\x1b[38;2;235;218;40mG\033[0m",
+    "\x1b[38;2;186;186;186mW\033[0m",
     "\x1b[38;2;16;108;194m?\033[0m",
 ]
 TILE_TYPE_CHARS = [
@@ -431,8 +431,8 @@ class _CatanBoard:
             else f"\033[2m{default_char}\033[0m"
         )
 
-    def _get_harbor_char(self, harbor_type: HarborType) -> str:
-        return HARBOR_TYPE_CHARS[harbor_type.value]
+    def _get_harbor_char(self, vertex_idx: VertexIdx) -> str:
+        return HARBOR_TYPE_CHARS[self.vertices[vertex_idx].harbor_type.value]
 
     def _get_tile_char(self, tile_idx: TileIdx) -> str:
         tile = self.tiles[tile_idx]
@@ -456,11 +456,11 @@ class _CatanBoard:
         # fmt: off
         return ''.join(
             (
-                '                        {}               {}               {}'.format(*(self._get_vertex_char(vertex_idx) for vertex_idx in (0, 2, 4))),
+                '                {0}   {2}   {4}               {5}   {3}   {1}       {6}'.format(*(self._get_harbor_char(vertex_idx) for vertex_idx in (0, 2)), '\x1b[38;2;158;158;158m_\033[0m', '\x1b[38;2;158;158;158m_\033[0m', *(self._get_vertex_char(vertex_idx) for vertex_idx in (0, 2, 4))),
                 '\n',
                 '\n',
                 '\n',
-                '                   {}         {}     {}         {}     {}         {}'.format(*(self._get_edge_char(edge_idx, default_char) for edge_idx, default_char in zip((0, 1, 2, 3, 4, 5), ('/', '\\', '/', '\\', '/', '\\')))),
+                '                {0}  {2}         {3}     {4}         {5}  {1}  {6}         {7}'.format('\x1b[38;2;158;158;158m|\033[0m', '\x1b[38;2;158;158;158m|\033[0m', *(self._get_edge_char(edge_idx, default_char) for edge_idx, default_char in zip((0, 1, 2, 3, 4, 5), ('/', '\\', '/', '\\', '/', '\\')))),
                 '\n',
                 '\n',
                 '\n',
@@ -473,21 +473,22 @@ class _CatanBoard:
                 '\n',
                 '\n',
                 '\n',
-                '                {}               {}               {}               {}'.format(*(self._get_vertex_char(vertex_idx) for vertex_idx in (28, 30, 32, 6))),
+                '                {2}               {3}               {4}               {5}   {1}   {0}'.format(self._get_harbor_char(6), '\x1b[38;2;158;158;158m_\033[0m', *(self._get_vertex_char(vertex_idx) for vertex_idx in (28, 30, 32, 6))),
                 '\n',
                 '\n',
                 '\n',
-                '           {}         {}     {}         {}     {}         {}     {}         {}'.format(*(self._get_edge_char(edge_idx, default_char) for edge_idx, default_char in zip((28, 41, 42, 43, 44, 45, 32, 7), ('/', '\\', '/', '\\', '/', '\\', '/', '\\')))),
+                '           {1}         {2}     {3}         {4}     {5}         {6}     {7}         {8}  {0}'.format('\x1b[38;2;158;158;158m|\033[0m', *(self._get_edge_char(edge_idx, default_char) for edge_idx, default_char in zip((28, 41, 42, 43, 44, 45, 32, 7), ('/', '\\', '/', '\\', '/', '\\', '/', '\\')))),
                 '\n',
                 '\n',
                 '\n',
                 '        {}               {}               {}               {}               {}'.format(*(self._get_vertex_char(vertex_idx) for vertex_idx in (27, 47, 31, 33, 7))),
                 '\n',
                 '\n',
-                '              {}           {}           {}           {}'.format(*(self._get_token_char(tile_idx) for tile_idx in (11, 12, 13, 3))),
+                '     {}        {}           {}           {}           {}'.format('\x1b[38;2;158;158;158m/\033[0m', *(self._get_token_char(tile_idx) for tile_idx in (11, 12, 13, 3))),
                 '\n',
-                '        {0}      {5}     {1}      {6}     {2}      {7}     {3}      {8}     {4}'.format(*(self._get_edge_char(edge_idx, default_char) for edge_idx, default_char in zip((27, 59, 60, 46, 8), ('|', '|', '|', '|', '|'))), *(self._get_tile_char(tile_idx) for tile_idx in (11, 12, 13, 3))),
+                '    {0}   {1}      {6}     {2}      {7}     {3}      {8}     {4}      {9}     {5}'.format(self._get_harbor_char(26), *(self._get_edge_char(edge_idx, default_char) for edge_idx, default_char in zip((27, 59, 60, 46, 8), ('|', '|', '|', '|', '|'))), *(self._get_tile_char(tile_idx) for tile_idx in (11, 12, 13, 3))),
                 '\n',
+                '     {}'.format('\x1b[38;2;158;158;158m\\\033[0m'),
                 '\n',
                 '\n',
                 '        {}               {}               {}               {}               {}'.format(*(self._get_vertex_char(vertex_idx) for vertex_idx in (26, 46, 48, 34, 8))),
@@ -501,10 +502,11 @@ class _CatanBoard:
                 '{}               {}               {}               {}               {}               {}'.format(*(self._get_vertex_char(vertex_idx) for vertex_idx in (25, 45, 53, 49, 35, 9))),
                 '\n',
                 '\n',
-                '      {}           {}           {}           {}           {}'.format(*(self._get_token_char(tile_idx) for tile_idx in (10, 17, 18, 14, 4))),
+                '      {1}           {2}           {3}           {4}           {5}        {0}'.format('\x1b[38;2;158;158;158m\\\033[0m', *(self._get_token_char(tile_idx) for tile_idx in (10, 17, 18, 14, 4))),
                 '\n',
-                '{0}      {6}     {1}      {7}     {2}      {8}     {3}      {9}     {4}      {10}     {5}'.format(*(self._get_edge_char(edge_idx, default_char) for edge_idx, default_char in zip((25, 57, 71, 68, 48, 10), ('|', '|', '|', '|', '|', '|'))), *(self._get_tile_char(tile_idx) for tile_idx in (10, 17, 18, 14, 4))),
+                '{1}      {7}     {2}      {8}     {3}      {9}     {4}      {10}     {5}      {11}     {6}   {0}'.format(self._get_harbor_char(9), *(self._get_edge_char(edge_idx, default_char) for edge_idx, default_char in zip((25, 57, 71, 68, 48, 10), ('|', '|', '|', '|', '|', '|'))), *(self._get_tile_char(tile_idx) for tile_idx in (10, 17, 18, 14, 4))),
                 '\n',
+                '                                                                                   {}'.format('\x1b[38;2;158;158;158m/\033[0m'),
                 '\n',
                 '\n',
                 '{}               {}               {}               {}               {}               {}'.format(*(self._get_vertex_char(vertex_idx) for vertex_idx in (24, 44, 52, 50, 36, 10))),
@@ -518,21 +520,22 @@ class _CatanBoard:
                 '        {}               {}               {}               {}               {}'.format(*(self._get_vertex_char(vertex_idx) for vertex_idx in (23, 43, 51, 37, 11))),
                 '\n',
                 '\n',
-                '              {}           {}           {}           {}'.format(*(self._get_token_char(tile_idx) for tile_idx in (9, 16, 15, 5))),
+                '     {}        {}           {}           {}           {}'.format('\x1b[38;2;158;158;158m/\033[0m', *(self._get_token_char(tile_idx) for tile_idx in (9, 16, 15, 5))),
                 '\n',
-                '        {0}      {5}     {1}      {6}     {2}      {7}     {3}      {8}     {4}'.format(*(self._get_edge_char(edge_idx, default_char) for edge_idx, default_char in zip((23, 55, 63, 50, 12), ('|', '|', '|', '|', '|'))), *(self._get_tile_char(tile_idx) for tile_idx in (9, 16, 15, 5))),
+                '    {0}   {1}      {6}     {2}      {7}     {3}      {8}     {4}      {9}     {5}'.format(self._get_harbor_char(22), *(self._get_edge_char(edge_idx, default_char) for edge_idx, default_char in zip((23, 55, 63, 50, 12), ('|', '|', '|', '|', '|'))), *(self._get_tile_char(tile_idx) for tile_idx in (9, 16, 15, 5))),
                 '\n',
+                '     {}'.format('\x1b[38;2;158;158;158m\\\033[0m'),
                 '\n',
                 '\n',
                 '        {}               {}               {}               {}               {}'.format(*(self._get_vertex_char(vertex_idx) for vertex_idx in (22, 42, 40, 38, 12))),
                 '\n',
                 '\n',
                 '\n',
-                '           {}         {}     {}         {}     {}         {}     {}         {}'.format(*(self._get_edge_char(edge_idx, default_char) for edge_idx, default_char in zip((22, 38, 54, 53, 52, 51, 35, 13), ('\\', '/', '\\', '/', '\\', '/', '\\', '/')))),
+                '           {1}         {2}     {3}         {4}     {5}         {6}     {7}         {8}  {0}'.format('\x1b[38;2;158;158;158m|\033[0m', *(self._get_edge_char(edge_idx, default_char) for edge_idx, default_char in zip((22, 38, 54, 53, 52, 51, 35, 13), ('\\', '/', '\\', '/', '\\', '/', '\\', '/')))),
                 '\n',
                 '\n',
                 '\n',
-                '                {}               {}               {}               {}'.format(*(self._get_vertex_char(vertex_idx) for vertex_idx in (21, 41, 39, 13))),
+                '                {2}               {3}               {4}               {5}   {1}   {0}'.format(self._get_harbor_char(12), '\x1b[38;2;158;158;158m_\033[0m', *(self._get_vertex_char(vertex_idx) for vertex_idx in (21, 41, 39, 13))),
                 '\n',
                 '\n',
                 '                      {}           {}           {}'.format(*(self._get_token_char(tile_idx) for tile_idx in (8, 7, 6))),
@@ -545,11 +548,11 @@ class _CatanBoard:
                 '\n',
                 '\n',
                 '\n',
-                '                   {}         {}     {}         {}     {}         {}'.format(*(self._get_edge_char(edge_idx, default_char) for edge_idx, default_char in zip((20, 19, 18, 17, 16, 15), ('\\', '/', '\\', '/', '\\', '/')))),
+                '                {0}  {2}         {3}     {4}         {5}  {1}  {6}         {7}'.format('\x1b[38;2;158;158;158m|\033[0m', '\x1b[38;2;158;158;158m|\033[0m', *(self._get_edge_char(edge_idx, default_char) for edge_idx, default_char in zip((20, 19, 18, 17, 16, 15), ('\\', '/', '\\', '/', '\\', '/')))),
                 '\n',
                 '\n',
                 '\n',
-                '                        {}               {}               {}'.format(*(self._get_vertex_char(vertex_idx) for vertex_idx in (19, 17, 15))),
+                '                {0}   {2}   {4}               {5}   {3}   {1}       {6}'.format(*(self._get_harbor_char(vertex_idx) for vertex_idx in (16, 19)), '\x1b[38;2;158;158;158m_\033[0m', '\x1b[38;2;158;158;158m_\033[0m', *(self._get_vertex_char(vertex_idx) for vertex_idx in (19, 17, 15))),
             )
         )
         # fmt: on
@@ -1312,15 +1315,15 @@ def main() -> None:
             TileType.FIELDS,
         ],
         [
-            HarborType.ORE,
             HarborType.GENERIC,
-            HarborType.BRICK,
-            HarborType.GENERIC,
-            HarborType.GRAIN,
             HarborType.WOOL,
             HarborType.GENERIC,
+            HarborType.GENERIC,
+            HarborType.BRICK,
             HarborType.LUMBER,
             HarborType.GENERIC,
+            HarborType.GRAIN,
+            HarborType.ORE,
         ],
     )
     print(catan)
