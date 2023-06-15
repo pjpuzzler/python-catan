@@ -869,6 +869,10 @@ class Catan(_CatanBoard):
         """
 
         assert all(
+            amount > 0 for amount in resource_amounts.values()
+        ), "Resource amounts must be positive."
+
+        assert all(
             player.resource_amounts[resource_type] >= resource_amount
             for resource_type, resource_amount in resource_amounts.items()
         ), "Player cannot discard more resources than they have."
@@ -905,15 +909,15 @@ class Catan(_CatanBoard):
             color_to_trade_with in self._color_to_player
         ), "Player to trade with must be in the game."
 
+        assert len(resource_amounts_out) > 0, "Player 1 must trade at least 1 resource."
+        assert len(resource_amounts_in) > 0, "Player 2 must trade at least 1 resource."
+
         assert all(
             amount > 0 for amount in resource_amounts_out.values()
         ), f"Player 1's resource amounts must all be positive, got {resource_amounts_out}."
         assert all(
             amount > 0 for amount in resource_amounts_in.values()
         ), f"Player 2's resource amounts must all be positive, got {resource_amounts_in}."
-
-        assert len(resource_amounts_out) > 0, "Player 1 must trade at least 1 resource."
-        assert len(resource_amounts_in) > 0, "Player 2 must trade at least 1 resource."
 
         assert not any(
             resource_type in resource_amounts_in
@@ -963,6 +967,10 @@ class Catan(_CatanBoard):
         assert (
             resource_type_out is not resource_type_in
         ), "Cannot trade the same resource."
+
+        assert (
+            self.resource_amounts[resource_type_in] > 0
+        ), "Resource type is not in supply."
 
         player = self.turn
 
@@ -1018,7 +1026,7 @@ class Catan(_CatanBoard):
             player_to_take_from = self._color_to_player[color_to_take_from]
 
             assert any(
-                player_to_take_from.resource_amounts.values()
+                amount > 0 for amount in player_to_take_from.resource_amounts.values()
             ), f"{player_to_take_from} does not have any resources."
 
             self._transfer_resources(
@@ -1034,7 +1042,10 @@ class Catan(_CatanBoard):
 
         else:
             assert not any(
-                any(self._color_to_player[color].resource_amounts.values())
+                any(
+                    amount > 0
+                    for amount in self._color_to_player[color].resource_amounts.values()
+                )
                 for color in colors_on_tile
             ), "Must take cards from a player on the robber tile if possible."
 
@@ -1106,7 +1117,7 @@ class Catan(_CatanBoard):
                 )
 
     def play_road_building(
-        self, edge_idx_1: EdgeIdx, edge_idx_2: EdgeIdx | None
+        self, edge_idx_1: EdgeIdx, edge_idx_2: EdgeIdx | None = None
     ) -> None:
         """
         Plays a road building development card.
@@ -1121,6 +1132,9 @@ class Catan(_CatanBoard):
             DevelopmentCard(DevelopmentCardType.ROAD_BUILDING, True)
             in player.development_cards
         ), "Player must have a road building bought on a previous turn to play a road building."
+
+        assert player.roads_left >= 1, "Player must have enough roads left."
+        assert (edge_idx_2 is None) == (player.roads_left == 1), "Must use all roads."
 
         edge_1 = self.edges[edge_idx_1]
 
@@ -1148,9 +1162,6 @@ class Catan(_CatanBoard):
                 for adj_vertex in edge_2.adj_vertices
             ), f"Edge 2 must have an adjacent road, settlement, or city of the same color to build a road."
 
-        else:
-            assert player.roads_left > 0, f"Player does not have any roads left."
-
         player.development_cards.remove(
             DevelopmentCard(DevelopmentCardType.ROAD_BUILDING, True)
         )
@@ -1167,23 +1178,27 @@ class Catan(_CatanBoard):
         :param resource_amounts: The resources to take.
         """
 
+        assert all(
+            amount > 0 for amount in resource_amounts.values()
+        ), "Resource amounts must be positive."
+
+        total_resource_amount = sum(resource_amounts.values())
+        assert total_resource_amount in (1, 2), "Must take exactly one or two cards."
+        assert (total_resource_amount == 1) == (
+            sum(self.resource_amounts.values()) == 1
+        ), "Must only take one card when there is only one card left."
+
+        assert all(
+            self.resource_amounts[resource_type] >= resource_amount
+            for resource_type, resource_amount in resource_amounts.items()
+        ), "Must take resources that are available."
+
         player = self.turn
 
         assert (
             DevelopmentCard(DevelopmentCardType.YEAR_OF_PLENTY, True)
             in player.development_cards
         ), "Player must have a year of plenty bought on a previous turn to play a year of plenty."
-
-        total_resource_amount = sum(resource_amounts.values())
-        assert total_resource_amount in (1, 2), "Must take exactly one or two cards."
-        assert (total_resource_amount == 1) == (
-            sum(self.resource_amounts.values()) == 1
-        ), "Must take one card if there is only one card left."
-
-        assert all(
-            self.resource_amounts[resource_type] >= resource_amount
-            for resource_type, resource_amount in resource_amounts.items()
-        ), "Must take resources that are available."
 
         player.development_cards.remove(
             DevelopmentCard(DevelopmentCardType.YEAR_OF_PLENTY, True)
@@ -1274,7 +1289,7 @@ class Catan(_CatanBoard):
 
 def main() -> None:
     catan = Catan(
-        [Color.BLUE, Color.RED],
+        Color,
         [
             TileType.FOREST,
             TileType.FIELDS,
@@ -1308,15 +1323,7 @@ def main() -> None:
             HarborType.GENERIC,
         ],
     )
-    catan.players[0].resource_amounts = {
-        resource_type: 4 for resource_type in ResourceType
-    }
-    catan.players[1].resource_amounts = {
-        resource_type: 4 for resource_type in ResourceType
-    }
-
-    catan.maritime_trade(ResourceType.ORE, ResourceType.BRICK)
-    print()
+    print(catan)
 
 
 if __name__ == "__main__":
