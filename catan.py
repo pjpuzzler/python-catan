@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass, field
 from enum import Enum
-from random import choices, randint, shuffle
+from random import choice, choices, randint, shuffle
 
 
 class Color(Enum):
@@ -57,6 +57,8 @@ HARBOR_IDXS = range(9)
 TileIdx = int
 TILE_IDXS = range(19)
 
+CORNER_TILE_IDXS = TILE_IDXS[:12:2]
+
 VertexIdx = int
 VERTEX_IDXS = range(54)
 
@@ -68,6 +70,8 @@ PLAYER_IDXS = range(4)
 
 Token = int
 TOKENS = [*range(2, 7), *range(8, 13)]
+
+BASE_TOKENS = [5, 2, 6, 3, 8, 10, 9, 12, 11, 4, 8, 10, 9, 4, 5, 6, 3, 11, None]
 
 Roll = int
 ROLLS = range(2, 13)
@@ -203,41 +207,6 @@ class Vertex:
 
 
 class _CatanBoard:
-    _BASE_TOKEN_TO_TILE_IDXS = {
-        2: (11,),
-        3: (9, 14),
-        4: (3, 17),
-        5: (0, 16),
-        6: (10, 15),
-        8: (2, 8),
-        9: (6, 12),
-        10: (1, 7),
-        11: (4, 13),
-        12: (5,),
-    }
-
-    _COUNTER_CLOCKWISE_TILE_IDXS = [
-        0,
-        11,
-        10,
-        9,
-        8,
-        7,
-        6,
-        5,
-        4,
-        3,
-        2,
-        1,
-        12,
-        17,
-        16,
-        15,
-        14,
-        13,
-        18,
-    ]
-
     _TILE_IDX_TO_ADJ_VERTEX_IDXS = [
         (0, 1, 30, 47, 28, 29),
         (2, 3, 32, 31, 30, 1),
@@ -341,14 +310,15 @@ class _CatanBoard:
     def __init__(
         self,
         tile_types: list[TileType] | None = None,
+        tokens: list[Token | None] | None = None,
         harbor_types: list[HarborType] | None = None,
     ) -> None:
         if tile_types is None:
-            tile_types = BASE_TILE_TYPES[:]
+            tile_types = BASE_TILE_TYPES.copy()
             shuffle(tile_types)
 
         if harbor_types is None:
-            harbor_types = BASE_HARBOR_TYPES[:]
+            harbor_types = BASE_HARBOR_TYPES.copy()
             shuffle(harbor_types)
 
         self.edges = [Edge() for _ in EDGE_IDXS]
@@ -364,23 +334,6 @@ class _CatanBoard:
             )
             for vertex_idx in VERTEX_IDXS
         ]
-
-        robber_tile_idx = tile_types.index(TileType.DESERT)
-        self.robber_tile = self.tiles[robber_tile_idx]
-
-        self.token_to_tiles = {}
-        for token in TOKENS:
-            self.token_to_tiles[token] = tuple(
-                self.tiles[
-                    self._COUNTER_CLOCKWISE_TILE_IDXS[
-                        self._COUNTER_CLOCKWISE_TILE_IDXS.index(tile_idx) + 1
-                    ]
-                    if self._COUNTER_CLOCKWISE_TILE_IDXS[tile_idx]
-                    >= self._COUNTER_CLOCKWISE_TILE_IDXS[robber_tile_idx]
-                    else tile_idx
-                ]
-                for tile_idx in self._BASE_TOKEN_TO_TILE_IDXS[token]
-            )
 
         for edge_idx, edge in enumerate(self.edges):
             adj_vertex_idxs = tuple(
@@ -423,6 +376,49 @@ class _CatanBoard:
                 and other_vertex_idx != vertex_idx
             )
 
+        desert_tile_idx = tile_types.index(TileType.DESERT)
+        self.robber_tile = self.tiles[desert_tile_idx]
+
+        if tokens is None:
+            starting_tile_idx = choice(CORNER_TILE_IDXS)
+            starting_offset = 12 - starting_tile_idx
+            outer_layer = BASE_TOKENS[:12]
+            inner_layer = BASE_TOKENS[12:-1]
+
+            if desert_tile_idx < 12:
+                outer_layer.insert(
+                    (11 + (1 - desert_tile_idx) + starting_tile_idx) % 12, None
+                )
+                inner_layer.insert(0, outer_layer.pop())
+            elif desert_tile_idx < 18:
+                inner_layer.insert(
+                    (5 + (13 - desert_tile_idx) + starting_tile_idx // 2) % 6, None
+                )
+            else:
+                inner_layer.append(None)
+            center = [inner_layer.pop()]
+
+            outer_layer = (
+                outer_layer[-starting_offset:] + outer_layer[:-starting_offset]
+            )
+            inner_layer = (
+                inner_layer[-(starting_offset // 2) :]
+                + inner_layer[: -(starting_offset // 2)]
+            )
+
+            outer_layer = outer_layer[:1] + outer_layer[:0:-1]
+            inner_layer = inner_layer[:1] + inner_layer[:0:-1]
+
+            tokens = outer_layer + inner_layer + center
+
+        self.token_to_tiles = {
+            token: tuple(
+                self.tiles[tile_idx]
+                for tile_idx in (i for i, t in enumerate(tokens) if t == token)
+            )
+            for token in TOKENS
+        }
+
     def _get_edge_char(self, edge_idx: EdgeIdx, default_char: str) -> str:
         edge = self.edges[edge_idx]
         return (
@@ -436,7 +432,11 @@ class _CatanBoard:
 
     def _get_tile_char(self, tile_idx: TileIdx) -> str:
         tile = self.tiles[tile_idx]
-        return TILE_TYPE_CHARS[tile.tile_type.value] + ("*" if tile.has_robber else " ")
+        return (
+            ("\033[9m" if tile.has_robber else "")
+            + TILE_TYPE_CHARS[tile.tile_type.value]
+            + "\033[0m"
+        )
 
     def _get_token_char(self, tile_idx: TileIdx) -> str:
         for token in TOKENS:
@@ -469,7 +469,7 @@ class _CatanBoard:
                 '\n',
                 '                      {}           {}           {}'.format(*(self._get_token_char(tile_idx) for tile_idx in (0, 1, 2))),
                 '\n',
-                '                {0}      {4}     {1}      {5}     {2}      {6}     {3}'.format(*(self._get_edge_char(edge_idx, default_char) for edge_idx, default_char in zip((29, 30, 31, 6), ('|', '|', '|', '|'))), *(self._get_tile_char(tile_idx) for tile_idx in (0, 1, 2))),
+                '                {0}      {4}      {1}      {5}      {2}      {6}      {3}'.format(*(self._get_edge_char(edge_idx, default_char) for edge_idx, default_char in zip((29, 30, 31, 6), ('|', '|', '|', '|'))), *(self._get_tile_char(tile_idx) for tile_idx in (0, 1, 2))),
                 '\n',
                 '\n',
                 '\n',
@@ -486,7 +486,7 @@ class _CatanBoard:
                 '\n',
                 '     {}        {}           {}           {}           {}'.format('\x1b[38;2;158;158;158m/\033[0m', *(self._get_token_char(tile_idx) for tile_idx in (11, 12, 13, 3))),
                 '\n',
-                '    {0}   {1}      {6}     {2}      {7}     {3}      {8}     {4}      {9}     {5}'.format(self._get_harbor_char(26), *(self._get_edge_char(edge_idx, default_char) for edge_idx, default_char in zip((27, 59, 60, 46, 8), ('|', '|', '|', '|', '|'))), *(self._get_tile_char(tile_idx) for tile_idx in (11, 12, 13, 3))),
+                '    {0}   {1}      {6}      {2}      {7}      {3}      {8}      {4}      {9}      {5}'.format(self._get_harbor_char(26), *(self._get_edge_char(edge_idx, default_char) for edge_idx, default_char in zip((27, 59, 60, 46, 8), ('|', '|', '|', '|', '|'))), *(self._get_tile_char(tile_idx) for tile_idx in (11, 12, 13, 3))),
                 '\n',
                 '     {}'.format('\x1b[38;2;158;158;158m\\\033[0m'),
                 '\n',
@@ -504,7 +504,7 @@ class _CatanBoard:
                 '\n',
                 '      {1}           {2}           {3}           {4}           {5}        {0}'.format('\x1b[38;2;158;158;158m\\\033[0m', *(self._get_token_char(tile_idx) for tile_idx in (10, 17, 18, 14, 4))),
                 '\n',
-                '{1}      {7}     {2}      {8}     {3}      {9}     {4}      {10}     {5}      {11}     {6}   {0}'.format(self._get_harbor_char(9), *(self._get_edge_char(edge_idx, default_char) for edge_idx, default_char in zip((25, 57, 71, 68, 48, 10), ('|', '|', '|', '|', '|', '|'))), *(self._get_tile_char(tile_idx) for tile_idx in (10, 17, 18, 14, 4))),
+                '{1}      {7}      {2}      {8}      {3}      {9}      {4}      {10}      {5}      {11}      {6}   {0}'.format(self._get_harbor_char(9), *(self._get_edge_char(edge_idx, default_char) for edge_idx, default_char in zip((25, 57, 71, 68, 48, 10), ('|', '|', '|', '|', '|', '|'))), *(self._get_tile_char(tile_idx) for tile_idx in (10, 17, 18, 14, 4))),
                 '\n',
                 '                                                                                   {}'.format('\x1b[38;2;158;158;158m/\033[0m'),
                 '\n',
@@ -522,7 +522,7 @@ class _CatanBoard:
                 '\n',
                 '     {}        {}           {}           {}           {}'.format('\x1b[38;2;158;158;158m/\033[0m', *(self._get_token_char(tile_idx) for tile_idx in (9, 16, 15, 5))),
                 '\n',
-                '    {0}   {1}      {6}     {2}      {7}     {3}      {8}     {4}      {9}     {5}'.format(self._get_harbor_char(22), *(self._get_edge_char(edge_idx, default_char) for edge_idx, default_char in zip((23, 55, 63, 50, 12), ('|', '|', '|', '|', '|'))), *(self._get_tile_char(tile_idx) for tile_idx in (9, 16, 15, 5))),
+                '    {0}   {1}      {6}      {2}      {7}      {3}      {8}      {4}      {9}      {5}'.format(self._get_harbor_char(22), *(self._get_edge_char(edge_idx, default_char) for edge_idx, default_char in zip((23, 55, 63, 50, 12), ('|', '|', '|', '|', '|'))), *(self._get_tile_char(tile_idx) for tile_idx in (9, 16, 15, 5))),
                 '\n',
                 '     {}'.format('\x1b[38;2;158;158;158m\\\033[0m'),
                 '\n',
@@ -540,7 +540,7 @@ class _CatanBoard:
                 '\n',
                 '                      {}           {}           {}'.format(*(self._get_token_char(tile_idx) for tile_idx in (8, 7, 6))),
                 '\n',
-                '                {0}      {4}     {1}      {5}     {2}      {6}     {3}'.format(*(self._get_edge_char(edge_idx, default_char) for edge_idx, default_char in zip((21, 37, 36, 14), ('|', '|', '|', '|'))), *(self._get_tile_char(tile_idx) for tile_idx in (8, 7, 6))),
+                '                {0}      {4}      {1}      {5}      {2}      {6}      {3}'.format(*(self._get_edge_char(edge_idx, default_char) for edge_idx, default_char in zip((21, 37, 36, 14), ('|', '|', '|', '|'))), *(self._get_tile_char(tile_idx) for tile_idx in (8, 7, 6))),
                 '\n',
                 '\n',
                 '\n',
@@ -578,6 +578,7 @@ class Catan(_CatanBoard):
         self,
         colors: list[Color],
         tile_types: list[TileType] | None = None,
+        tokens: list[Token | None] | None = None,
         harbor_types: list[HarborType] | None = None,
     ) -> None:
         """
@@ -593,19 +594,31 @@ class Catan(_CatanBoard):
         ), f"Number of colors must be 2-4, got {len(colors)}."
         assert len(set(colors)) == len(colors), "Colors must be unique."
 
+        assert (tile_types is None) == (
+            tokens is None
+        ), "Either both or neither of tile_types and tokens must be specified."
+
         if tile_types is not None:
             assert len(tile_types) == len(BASE_TILE_TYPES) and all(
                 tile_types.count(tile_type) == BASE_TILE_TYPES.count(tile_type)
-                for tile_type in list(TileType)
+                for tile_type in TileType
             ), f"Tile types must have all tiles, got {tile_types}."
+
+        if tokens is not None:
+            assert len(tokens) == len(BASE_TOKENS) and all(
+                tokens.count(token) == BASE_TOKENS.count(token) for token in TOKENS
+            ), f"Tokens must have all tokens, got {tokens}."
+            assert tokens.index(None) == tile_types.index(
+                TileType.DESERT
+            ), "Empty token must be on desert tile."
 
         if harbor_types is not None:
             assert len(harbor_types) == len(BASE_HARBOR_TYPES) and all(
                 harbor_types.count(harbor_type) == BASE_HARBOR_TYPES.count(harbor_type)
-                for harbor_type in list(HarborType)
+                for harbor_type in HarborType
             ), f"Harbor types must have all harbors, got {harbor_types}."
 
-        super().__init__(tile_types, harbor_types)
+        super().__init__(tile_types, tokens, harbor_types)
 
         self.players = [Player(color) for color in colors]
         self._color_to_player = {player.color: player for player in self.players}
@@ -1288,46 +1301,3 @@ class Catan(_CatanBoard):
         """
 
         return randint(1, 6) + randint(1, 6)
-
-
-def main() -> None:
-    catan = Catan(
-        Color,
-        [
-            TileType.FOREST,
-            TileType.FIELDS,
-            TileType.MOUNTAINS,
-            TileType.HILLS,
-            TileType.FIELDS,
-            TileType.PASTURE,
-            TileType.FOREST,
-            TileType.PASTURE,
-            TileType.FIELDS,
-            TileType.HILLS,
-            TileType.FOREST,
-            TileType.PASTURE,
-            TileType.MOUNTAINS,
-            TileType.HILLS,
-            TileType.FOREST,
-            TileType.MOUNTAINS,
-            TileType.PASTURE,
-            TileType.DESERT,
-            TileType.FIELDS,
-        ],
-        [
-            HarborType.GENERIC,
-            HarborType.WOOL,
-            HarborType.GENERIC,
-            HarborType.GENERIC,
-            HarborType.BRICK,
-            HarborType.LUMBER,
-            HarborType.GENERIC,
-            HarborType.GRAIN,
-            HarborType.ORE,
-        ],
-    )
-    print(catan)
-
-
-if __name__ == "__main__":
-    main()
