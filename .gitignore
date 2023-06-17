@@ -1,5 +1,0 @@
-.gitignore
-.vscode/settings.json
-tempCodeRunnerFile.py
-tests.ipynb
-__pycache__/catan.cpython-311.pyc
