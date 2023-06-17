@@ -1060,15 +1060,14 @@ class Catan(_CatanBoard):
                 },
             )
 
-        # else:
-        #     assert not any(
-        #         any(
-        #             amount > 0
-        #             for amount in self._color_to_player[color].resource_amounts.values()
-        #         )
-        #         for color in colors_on_tile
-        #     ), "Must take cards from a player on the robber tile if possible."
-        # TODO
+        else:
+            assert not any(
+                any(
+                    amount > 0
+                    for amount in self._color_to_player[color].resource_amounts.values()
+                )
+                for color in colors_on_tile
+            ), "Must take cards from a player on the robber tile if possible."
 
         self.robber_tile.has_robber = False
         new_robber_tile.has_robber = True
