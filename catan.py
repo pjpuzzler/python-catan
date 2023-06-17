@@ -76,28 +76,28 @@ BASE_TOKENS = [5, 2, 6, 3, 8, 10, 9, 12, 11, 4, 8, 10, 9, 4, 5, 6, 3, 11, None]
 Roll = int
 ROLLS = range(2, 13)
 
-COLOR_CODES = [
-    "\x1b[38;2;26;110;219m",
-    "\x1b[38;2;219;126;26m",
-    "\x1b[38;2;222;29;29m",
-    "\x1b[38;2;255;255;255m",
-]
-HARBOR_TYPE_CHARS = [
-    "\x1b[38;2;199;97;54mB\033[0m",
-    "\x1b[38;2;99;70;52mL\033[0m",
-    "\x1b[38;2;84;84;84mO\033[0m",
-    "\x1b[38;2;235;218;40mG\033[0m",
-    "\x1b[38;2;186;186;186mW\033[0m",
-    "\x1b[38;2;16;108;194m?\033[0m",
-]
-TILE_TYPE_CHARS = [
-    "\x1b[38;2;219;202;123mDes\033[0m",
-    "\x1b[38;2;217;124;30mHil\033[0m",
-    "\x1b[38;2;25;120;22mFor\033[0m",
-    "\x1b[38;2;150;150;150mMnt\033[0m",
-    "\x1b[38;2;235;218;40mFld\033[0m",
-    "\x1b[38;2;103;235;80mPas\033[0m",
-]
+COLOR_CODES = {
+    Color.BLUE: "\x1b[38;2;26;110;219m",
+    Color.ORANGE: "\x1b[38;2;219;126;26m",
+    Color.RED: "\x1b[38;2;222;29;29m",
+    Color.WHITE: "\x1b[38;2;255;255;255m",
+}
+HARBOR_TYPE_CHARS = {
+    HarborType.BRICK: "\x1b[38;2;199;97;54mB\033[0m",
+    HarborType.LUMBER: "\x1b[38;2;99;70;52mL\033[0m",
+    HarborType.ORE: "\x1b[38;2;84;84;84mO\033[0m",
+    HarborType.GRAIN: "\x1b[38;2;235;218;40mG\033[0m",
+    HarborType.WOOL: "\x1b[38;2;186;186;186mW\033[0m",
+    HarborType.GENERIC: "\x1b[38;2;16;108;194m?\033[0m",
+}
+TILE_TYPE_CHARS = {
+    TileType.DESERT: "\x1b[38;2;219;202;123mDes\033[0m",
+    TileType.HILLS: "\x1b[38;2;217;124;30mHil\033[0m",
+    TileType.FOREST: "\x1b[38;2;25;120;22mFor\033[0m",
+    TileType.MOUNTAINS: "\x1b[38;2;150;150;150mMnt\033[0m",
+    TileType.FIELDS: "\x1b[38;2;235;218;40mFld\033[0m",
+    TileType.PASTURE: "\x1b[38;2;103;235;80mPas\033[0m",
+}
 
 ROAD_COST = {ResourceType.LUMBER: 1, ResourceType.BRICK: 1}
 SETTLEMENT_COST = {
@@ -409,36 +409,35 @@ class _CatanBoard:
             )
             for token in TOKENS
         }
+        self._tokens = tokens
 
     def _get_edge_char(self, edge_idx: EdgeIdx, default_char: str) -> str:
         edge = self.edges[edge_idx]
         return (
-            f"{COLOR_CODES[edge.road.color.value]}{default_char}\033[0m"
+            f"{COLOR_CODES[edge.road.color]}{default_char}\033[0m"
             if edge.road is not None
             else f"\033[2m{default_char}\033[0m"
         )
 
     def _get_harbor_char(self, vertex_idx: VertexIdx) -> str:
-        return HARBOR_TYPE_CHARS[self.vertices[vertex_idx].harbor_type.value]
+        return HARBOR_TYPE_CHARS[self.vertices[vertex_idx].harbor_type]
 
     def _get_tile_char(self, tile_idx: TileIdx) -> str:
         tile = self.tiles[tile_idx]
         return (
             ("\033[9m" if tile.has_robber else "")
-            + TILE_TYPE_CHARS[tile.tile_type.value]
+            + TILE_TYPE_CHARS[tile.tile_type]
             + "\033[0m"
         )
 
     def _get_token_char(self, tile_idx: TileIdx) -> str:
-        for token in TOKENS:
-            if self.tiles[tile_idx] in self.token_to_tiles[token]:
-                return f"({token}) ".rjust(5)
-        return "     "
+        token = self._tokens[tile_idx]
+        return "     " if token is None else f"({token}) ".rjust(5)
 
     def _get_vertex_char(self, vertex_idx: VertexIdx) -> str:
         vertex = self.vertices[vertex_idx]
         return (
-            f"{COLOR_CODES[vertex.building.color.value]}{'X' if vertex.building.building_type is BuildingType.CITY else 'x'}\033[0m"
+            f"{COLOR_CODES[vertex.building.color]}{'X' if vertex.building.building_type is BuildingType.CITY else 'x'}\033[0m"
             if vertex.building is not None
             else "\033[2m.\033[0m"
         )
