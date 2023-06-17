@@ -160,9 +160,6 @@ class Player:
     longest_road: int = 0
     victory_points: int = 0
 
-    def __eq__(self, other: Player) -> bool:
-        return self is other
-
     def __repr__(self) -> str:
         return f"Player({self.color.name})"
 
@@ -182,9 +179,6 @@ class Tile:
 
     adj_vertices: tuple[Vertex] | None = None
 
-    def __eq__(self, other: Tile) -> bool:
-        return self is other
-
     def __repr__(self) -> str:
         return f"Tile({self.tile_type.name}" + (", R)" if self.has_robber else ")")
 
@@ -198,9 +192,6 @@ class Vertex:
     adj_edges: tuple[Edge] | None = None
     adj_tiles: tuple[Tile] | None = None
     adj_vertices: tuple[Vertex] | None = None
-
-    def __eq__(self, other: Vertex) -> bool:
-        return self is other
 
     def __repr__(self) -> str:
         return f"Vertex({self.building})"
@@ -630,6 +621,8 @@ class Catan(_CatanBoard):
         shuffle(self.development_cards)
         self.largest_army_player = None
         self.longest_road_player = None
+        self.round = 1
+        self.turns_this_round = 0
 
     def _build_road(self, edge: Edge) -> None:
         player = self.turn
@@ -808,16 +801,16 @@ class Catan(_CatanBoard):
 
         self._build_settlement(vertex)
 
-    def build_set_up_phase(
-        self, vertex_idx: VertexIdx, edge_idx: EdgeIdx, round_two: bool = False
-    ) -> None:
+    def build_set_up_phase(self, vertex_idx: VertexIdx, edge_idx: EdgeIdx) -> None:
         """
-        Builds a settlement and road in the set-up phase.
+        Builds a settlement and road in the set-up phase. Automatically ends the turn and distributes resources if necessary.
 
         :param vertex_idx: The index of the vertex to build the settlement on.
         :param edge_idx: The index of the edge to build the road on.
         :param round_two: Whether or not this is the second round of the set-up phase.
         """
+
+        assert self.round in (1, 2), "Set-up phase is over."
 
         player = self.turn
 
@@ -846,12 +839,14 @@ class Catan(_CatanBoard):
         self._build_settlement(vertex)
         self._build_road(edge)
 
-        if round_two:
+        if self.round == 2:
             for adj_tile in vertex.adj_tiles:
                 if adj_tile.tile_type != TileType.DESERT:
                     self._transfer_resources(
                         None, player, {ResourceType(adj_tile.tile_type.value - 1): 1}
                     )
+
+        self.end_turn()
 
     def buy_development_card(self) -> None:
         """
@@ -875,18 +870,20 @@ class Catan(_CatanBoard):
             player.victory_points += 1
 
     def discard_half(
-        self, player: Player, resource_amounts: dict[ResourceType, int]
+        self, color: Color, resource_amounts: dict[ResourceType, int]
     ) -> None:
         """
         Discards half of a player's resources.
 
-        :param player: The player to discard resources for.
+        :param color: The color of the player to discard resources for.
         :param resource_amounts: The amounts of resources to discard.
         """
 
         assert all(
             amount > 0 for amount in resource_amounts.values()
         ), "Resource amounts must be positive."
+
+        player = self._color_to_player[color]
 
         assert all(
             player.resource_amounts[resource_type] >= resource_amount
@@ -959,6 +956,11 @@ class Catan(_CatanBoard):
         Ends the current player's turn.
         """
 
+        self.turns_this_round += 1
+        if self.turns_this_round == len(self.players):
+            self.turns_this_round = 0
+            self.round += 1
+
         for development_card in self.turn.development_cards:
             if (
                 development_card.development_card_type
@@ -967,6 +969,9 @@ class Catan(_CatanBoard):
                 development_card.playable = True
 
         self.players = self.players[1:] + self.players[:1]
+
+        if self.turns_this_round == 0 and self.round in (2, 3):
+            self.players.reverse()
 
     def maritime_trade(
         self,
@@ -1056,14 +1061,15 @@ class Catan(_CatanBoard):
                 },
             )
 
-        else:
-            assert not any(
-                any(
-                    amount > 0
-                    for amount in self._color_to_player[color].resource_amounts.values()
-                )
-                for color in colors_on_tile
-            ), "Must take cards from a player on the robber tile if possible."
+        # else:
+        #     assert not any(
+        #         any(
+        #             amount > 0
+        #             for amount in self._color_to_player[color].resource_amounts.values()
+        #         )
+        #         for color in colors_on_tile
+        #     ), "Must take cards from a player on the robber tile if possible."
+        # TODO
 
         self.robber_tile.has_robber = False
         new_robber_tile.has_robber = True
@@ -1228,6 +1234,8 @@ class Catan(_CatanBoard):
 
         :param token: The token to produce resources for.
         """
+
+        assert token in TOKENS, "Token must be valid."
 
         for tile in self.token_to_tiles[token]:
             if tile.has_robber:
