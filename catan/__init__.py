@@ -1202,27 +1202,31 @@ class Catan(_CatanBoard):
         if edge_idx_2 is not None:
             self._build_road(edge_2)
 
-    def play_year_of_plenty(self, resource_amounts: dict[ResourceType, int]) -> None:
+    def play_year_of_plenty(
+        self, resource_type_1: ResourceType, resource_type_2: ResourceType | None = None
+    ) -> None:
         """
         Plays a year of plenty development card.
 
-        :param resource_amounts: The resources to take.
+        :param resource_type_1: The type of the first resource to take.
+        :param resource_type_2: The type of the second resource to take, or None if only one resource is taken.
         """
 
-        assert all(
-            amount > 0 for amount in resource_amounts.values()
-        ), "Resource amounts must be positive."
-
-        total_resource_amount = sum(resource_amounts.values())
-        assert total_resource_amount in (1, 2), "Must take exactly one or two cards."
-        assert (total_resource_amount == 1) == (
+        assert (resource_type_2 is None) == (
             sum(self.resource_amounts.values()) == 1
         ), "Must only take one card when there is only one card left."
 
+        resource_amounts = defaultdict(int)
+
+        resource_amounts[resource_type_1] += 1
+
+        if resource_type_2 is not None:
+            resource_amounts[resource_type_2] += 1
+
         assert all(
-            self.resource_amounts[resource_type] >= resource_amount
-            for resource_type, resource_amount in resource_amounts.items()
-        ), "Must take resources that are available."
+            self.resource_amounts[resource_type] >= amount
+            for resource_type, amount in resource_amounts.items()
+        ), "Must have enough resources left."
 
         player = self.turn
 
