@@ -577,7 +577,7 @@ class Catan(_CatanBoard):
 
     def __init__(
         self,
-        colors: list[Color],
+        colors: list[Color] = list(Color),
         tile_types: list[TileType] | None = None,
         tokens: list[Token | None] | None = None,
         harbor_types: list[HarborType] | None = None,
