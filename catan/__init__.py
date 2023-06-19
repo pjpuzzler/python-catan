@@ -817,7 +817,6 @@ class Catan(_CatanBoard):
 
         :param vertex_idx: The index of the vertex to build the settlement on.
         :param edge_idx: The index of the edge to build the road on.
-        :param round_two: Whether or not this is the second round of the set-up phase.
         """
 
         assert self.is_set_up, "Set-up phase is over."
