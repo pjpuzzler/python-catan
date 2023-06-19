@@ -820,7 +820,7 @@ class Catan(_CatanBoard):
         :param round_two: Whether or not this is the second round of the set-up phase.
         """
 
-        assert self.round in (1, 2), "Set-up phase is over."
+        assert self.is_set_up, "Set-up phase is over."
 
         player = self.turn
 
@@ -1288,6 +1288,16 @@ class Catan(_CatanBoard):
         """
 
         return self.winner is not None
+
+    @property
+    def is_set_up(self) -> bool:
+        """
+        Gets whether the game is set up.
+
+        :return: Whether or not the game is set up.
+        """
+
+        return self.round <= 2
 
     @property
     def turn(self) -> Player:
