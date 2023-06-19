@@ -581,6 +581,7 @@ class Catan(_CatanBoard):
         tile_types: list[TileType] | None = None,
         tokens: list[Token | None] | None = None,
         harbor_types: list[HarborType] | None = None,
+        shuffle_order: bool = True,
     ) -> None:
         """
         Creates an instance of a Catan game.
@@ -621,6 +622,8 @@ class Catan(_CatanBoard):
 
         super().__init__(tile_types, tokens, harbor_types)
 
+        if shuffle_order:
+            shuffle(colors)
         self.players = [Player(color) for color in colors]
         self._color_to_player = {player.color: player for player in self.players}
         self.resource_amounts = {resource_type: 19 for resource_type in ResourceType}
