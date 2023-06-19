@@ -635,7 +635,7 @@ class Catan(_CatanBoard):
         self.largest_army_player = None
         self.longest_road_player = None
         self.round = 1
-        self.turns_this_round = 0
+        self._turns_this_round = 0
 
     def _build_road(self, edge: Edge) -> None:
         player = self.turn
@@ -968,9 +968,9 @@ class Catan(_CatanBoard):
         Ends the current player's turn.
         """
 
-        self.turns_this_round += 1
-        if self.turns_this_round == len(self.players):
-            self.turns_this_round = 0
+        self._turns_this_round += 1
+        if self._turns_this_round == len(self.players):
+            self._turns_this_round = 0
             self.round += 1
 
         for development_card in self.turn.development_cards:
@@ -982,7 +982,7 @@ class Catan(_CatanBoard):
 
         self.players = self.players[1:] + self.players[:1]
 
-        if self.turns_this_round == 0 and self.round in (2, 3):
+        if self._turns_this_round == 0 and self.round in (2, 3):
             self.players.reverse()
 
     def maritime_trade(
