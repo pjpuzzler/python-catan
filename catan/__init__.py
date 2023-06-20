@@ -114,6 +114,34 @@ DEVELOPMENT_CARD_COST = {
 }
 
 
+class BuildLocationError(Exception):
+    """Raised when a player tries to build on an invalid location."""
+
+
+class DevelopmentCardError(Exception):
+    """Raised when a player tries to play an invalid or nonexistent development card."""
+
+
+class InvalidResourcesError(Exception):
+    """Raised when a player doesn't have enough resources to perform an action."""
+
+
+class NotEnoughGameCardsError(Exception):
+    """Raised when the game doesn't have enough cards to perform an action."""
+
+
+class NotEnoughPiecesError(Exception):
+    """Raised when a player doesn't have enough pieces to perform an action."""
+
+
+class PhaseError(Exception):
+    """Raised when a player tries to perform an action during the wrong phase."""
+
+
+class RobberError(Exception):
+    """Raised when a player fails to move the robber."""
+
+
 @dataclass
 class Building:
     color: Color
@@ -591,34 +619,49 @@ class Catan(_CatanBoard):
         :param harbor_types: The (optional) types of harbors to use (must have all harbors).
         """
 
-        assert (
-            2 <= len(colors) <= 4
-        ), f"Number of colors must be 2-4, got {len(colors)}."
-        assert len(set(colors)) == len(colors), "Colors must be unique."
+        if not (2 <= len(colors) <= 4):
+            raise ValueError(f"Number of colors must be 2-4, got {len(colors)}.")
+        if len(set(colors)) != len(colors):
+            raise ValueError("Colors must be unique.")
 
-        assert (tile_types is None) == (
-            tokens is None
-        ), "Either both or neither of tile_types and tokens must be specified."
+        if (tile_types is None) != (tokens is None):
+            raise ValueError(
+                "Either both or neither of tile_types and tokens must be specified."
+            )
 
         if tile_types is not None:
-            assert len(tile_types) == len(BASE_TILE_TYPES) and all(
-                tile_types.count(tile_type) == BASE_TILE_TYPES.count(tile_type)
-                for tile_type in TileType
-            ), f"Tile types must have all tiles, got {tile_types}."
+            if not (
+                len(tile_types) == len(BASE_TILE_TYPES)
+                and all(
+                    tile_types.count(tile_type) == BASE_TILE_TYPES.count(tile_type)
+                    for tile_type in TileType
+                )
+            ):
+                raise ValueError(f"Tile types must have all tiles, got {tile_types}.")
 
         if tokens is not None:
-            assert len(tokens) == len(BASE_TOKENS) and all(
-                tokens.count(token) == BASE_TOKENS.count(token) for token in TOKENS
-            ), f"Tokens must have all tokens, got {tokens}."
-            assert tokens.index(None) == tile_types.index(
-                TileType.DESERT
-            ), "Empty token must be on desert tile."
+            if not (
+                len(tokens) == len(BASE_TOKENS)
+                and all(
+                    tokens.count(token) == BASE_TOKENS.count(token) for token in TOKENS
+                )
+            ):
+                raise ValueError(f"Tokens must have all tokens, got {tokens}.")
+            if tokens.index(None) != tile_types.index(TileType.DESERT):
+                raise ValueError("Empty token must be on desert tile.")
 
         if harbor_types is not None:
-            assert len(harbor_types) == len(BASE_HARBOR_TYPES) and all(
-                harbor_types.count(harbor_type) == BASE_HARBOR_TYPES.count(harbor_type)
-                for harbor_type in HarborType
-            ), f"Harbor types must have all harbors, got {harbor_types}."
+            if not (
+                len(harbor_types) == len(BASE_HARBOR_TYPES)
+                and all(
+                    harbor_types.count(harbor_type)
+                    == BASE_HARBOR_TYPES.count(harbor_type)
+                    for harbor_type in HarborType
+                )
+            ):
+                raise ValueError(
+                    f"Harbor types must have all harbors, got {harbor_types}."
+                )
 
         super().__init__(tile_types, tokens, harbor_types)
 
@@ -635,7 +678,7 @@ class Catan(_CatanBoard):
         self.largest_army_player = None
         self.longest_road_player = None
         self.round = 1
-        self._turns_this_round = 0
+        self.turns_this_round = 0
 
     def _build_road(self, edge: Edge) -> None:
         player = self.turn
@@ -725,21 +768,37 @@ class Catan(_CatanBoard):
         Builds a city.
 
         :param vertex_idx: The index of the vertex to build on.
+
+        :raises BuildLocationError:
+        :raises InvalidResourcesError:
+        :raises NotEnoughPiecesError:
+        :raises ValueError:
         """
+
+        if vertex_idx not in VERTEX_IDXS:
+            raise ValueError(
+                f"Vertex index must be in {VERTEX_IDXS}, got {vertex_idx}."
+            )
+
         player = self.turn
 
-        assert player.cities_left > 0, "Player does not have any cities left."
+        if player.cities_left == 0:
+            raise NotEnoughPiecesError("Player has no cities left.")
 
         vertex = self.vertices[vertex_idx]
 
-        assert vertex.building == Building(
-            player.color
-        ), "Vertex must have a settlement of the same color to build a city."
+        if vertex.building != Building(player.color):
+            raise BuildLocationError(
+                f"Player does not have a settlement on vertex {vertex_idx}."
+            )
 
-        assert all(
+        if not all(
             player.resource_amounts[resource_type] >= abs(cost)
             for resource_type, cost in CITY_COST.items()
-        ), f"Player must have at least 2 grain and 3 ore to upgrade settlement, has {player.resource_amounts[ResourceType.GRAIN]}g and {player.resource_amounts[ResourceType.ORE]}o."
+        ):
+            raise InvalidResourcesError(
+                f"Player must have at least 2 grain and 3 ore to upgrade settlement, has {player.resource_amounts[ResourceType.GRAIN]}g and {player.resource_amounts[ResourceType.ORE]}o."
+            )
 
         self._transfer_resources(player, None, CITY_COST)
 
@@ -753,28 +812,45 @@ class Catan(_CatanBoard):
         Builds a road.
 
         :param edge_idx: The index of the edge to build on.
+
+        :raises BuildLocationError:
+        :raises InvalidResourcesError:
+        :raises NotEnoughPiecesError:
+        :raises ValueError:
         """
+
+        if edge_idx not in EDGE_IDXS:
+            raise ValueError(f"Edge index must be in {EDGE_IDXS}, got {edge_idx}.")
 
         player = self.turn
 
-        assert player.roads_left > 0, "Player does not have any roads left."
+        if player.roads_left == 0:
+            raise NotEnoughPiecesError("Player has no roads left.")
 
         edge = self.edges[edge_idx]
 
-        assert edge.road is None, "Edge must be unoccupied to build a road."
+        if edge.road is not None:
+            raise BuildLocationError(f"Edge {edge_idx} already has a road on it.")
 
-        assert any(
-            adj_edge.road == Road(player.color) for adj_edge in edge.adj_edges
-        ) or any(
-            adj_vertex.building is not None
-            and adj_vertex.building.color is player.color
-            for adj_vertex in edge.adj_vertices
-        ), "Edge must have an adjacent road, settlement, or city of the same color to build a road."
+        if not (
+            any(adj_edge.road == Road(player.color) for adj_edge in edge.adj_edges)
+            or any(
+                adj_vertex.building is not None
+                and adj_vertex.building.color is player.color
+                for adj_vertex in edge.adj_vertices
+            )
+        ):
+            raise BuildLocationError(
+                f"Player must have a settlement or road adjacent to edge {edge_idx}."
+            )
 
-        assert all(
+        if not all(
             player.resource_amounts[resource_type] >= abs(cost)
             for resource_type, cost in ROAD_COST.items()
-        ), f"Player must have at least 1 lumber and 1 brick to build a road, has {player.resource_amounts[ResourceType.LUMBER]}l and {player.resource_amounts[ResourceType.BRICK]}b."
+        ):
+            raise InvalidResourcesError(
+                f"Player must have at least 1 lumber and 1 brick to build a road, has {player.resource_amounts[ResourceType.LUMBER]}l and {player.resource_amounts[ResourceType.BRICK]}b."
+            )
 
         self._transfer_resources(player, None, ROAD_COST)
 
@@ -785,30 +861,49 @@ class Catan(_CatanBoard):
         Builds a settlement.
 
         :param vertex_idx: The index of the vertex to build on.
+
+        :raises BuildLocationError:
+        :raises InvalidResourcesError:
+        :raises NotEnoughPiecesError:
+        :raises ValueError:
         """
+
+        if vertex_idx not in VERTEX_IDXS:
+            raise ValueError(
+                f"Vertex index must be in {VERTEX_IDXS}, got {vertex_idx}."
+            )
 
         player = self.turn
 
-        assert player.settlements_left > 0, "Player does not have any settlements left."
+        if player.settlements_left == 0:
+            raise NotEnoughPiecesError("Player has no settlements left.")
 
         vertex = self.vertices[vertex_idx]
 
-        assert (
-            vertex.building is None
-        ), "Vertex must be unoccupied to build a settlement."
+        if vertex.building is not None:
+            raise BuildLocationError(
+                f"Vertex {vertex_idx} already has a building on it."
+            )
 
-        assert any(
+        if not any(
             adj_edge.road == Road(player.color) for adj_edge in vertex.adj_edges
-        ), "Vertex must have an adjacent road of the same color to build a settlement."
+        ):
+            raise BuildLocationError(
+                f"Player must have a road adjacent to vertex {vertex_idx}."
+            )
 
-        assert all(
-            adj_vertex.building is None for adj_vertex in vertex.adj_vertices
-        ), "Vertex must have no adjacent buildings to build a settlement."
+        if not all(adj_vertex.building is None for adj_vertex in vertex.adj_vertices):
+            raise BuildLocationError(
+                f"Cannot have a settlement or city adjacent to vertex {vertex_idx}."
+            )
 
-        assert all(
+        if not all(
             player.resource_amounts[resource_type] >= abs(cost)
             for resource_type, cost in SETTLEMENT_COST.items()
-        ), f"Player must have at least 1 lumber, 1 brick, 1 grain and 1 wool to build a settlement, has {player.resource_amounts[ResourceType.LUMBER]}l, {player.resource_amounts[ResourceType.BRICK]}b, {player.resource_amounts[ResourceType.GRAIN]}g and {player.resource_amounts[ResourceType.WOOL]}w."
+        ):
+            raise InvalidResourcesError(
+                f"Player must have at least 1 lumber, 1 brick, 1 grain and 1 wool to build a settlement, has {player.resource_amounts[ResourceType.LUMBER]}l, {player.resource_amounts[ResourceType.BRICK]}b, {player.resource_amounts[ResourceType.GRAIN]}g and {player.resource_amounts[ResourceType.WOOL]}w."
+            )
 
         self._transfer_resources(player, None, SETTLEMENT_COST)
 
@@ -820,33 +915,45 @@ class Catan(_CatanBoard):
 
         :param vertex_idx: The index of the vertex to build the settlement on.
         :param edge_idx: The index of the edge to build the road on.
+
+        :raises BuildLocationError:
+        :raises PhaseError:
+        :raises ValueError:
         """
 
-        assert self.is_set_up, "Set-up phase is over."
+        if vertex_idx not in VERTEX_IDXS:
+            raise ValueError(
+                f"Vertex index must be in {VERTEX_IDXS}, got {vertex_idx}."
+            )
+        if edge_idx not in EDGE_IDXS:
+            raise ValueError(f"Edge index must be in {EDGE_IDXS}, got {edge_idx}.")
+
+        if not self.is_set_up:
+            raise PhaseError("Set-up phase is over.")
 
         player = self.turn
 
-        assert player.settlements_left > 0, "Player does not have any settlements left."
-
         vertex = self.vertices[vertex_idx]
 
-        assert (
-            vertex.building is None
-        ), "Vertex must be unoccupied to build a settlement."
+        if vertex.building is not None:
+            raise BuildLocationError(
+                f"Vertex {vertex_idx} already has a building on it."
+            )
 
-        assert all(
-            adj_vertex.building is None for adj_vertex in vertex.adj_vertices
-        ), "Vertex must have no adjacent buildings to build a settlement."
-
-        assert player.roads_left > 0, "Player does not have any roads left."
+        if not all(adj_vertex.building is None for adj_vertex in vertex.adj_vertices):
+            raise BuildLocationError(
+                f"Cannot have a settlement or city adjacent to vertex {vertex_idx}."
+            )
 
         edge = self.edges[edge_idx]
 
-        assert (
-            edge in vertex.adj_edges
-        ), "Road must be built adjacent to the settlement."
+        if edge.road is not None:
+            raise BuildLocationError(f"Edge {edge_idx} already has a road on it.")
 
-        assert edge.road is None, "Edge must be unoccupied to build a road."
+        if edge not in vertex.adj_edges:
+            raise BuildLocationError(
+                f"Edge {edge_idx} is not adjacent to vertex {vertex_idx}."
+            )
 
         self._build_settlement(vertex)
         self._build_road(edge)
@@ -863,15 +970,23 @@ class Catan(_CatanBoard):
     def buy_development_card(self) -> None:
         """
         Buys a development card.
+
+        :raises InvalidResourcesError:
+        :raises NotEnoughGameCardsError:
         """
-        assert self.development_cards, "There are no development cards left."
+
+        if not self.development_cards:
+            raise NotEnoughGameCardsError("No development cards left.")
 
         player = self.turn
 
-        assert all(
+        if not all(
             player.resource_amounts[resource_type] >= abs(cost)
             for resource_type, cost in DEVELOPMENT_CARD_COST.items()
-        ), f"Player must have at least 1 grain, 1 wool, and 1 ore to buy a development card, has {player.resource_amounts[ResourceType.GRAIN]}g, {player.resource_amounts[ResourceType.WOOL]}w and {player.resource_amounts[ResourceType.ORE]}o."
+        ):
+            raise InvalidResourcesError(
+                f"Player must have at least 1 grain, 1 wool, and 1 ore to buy a development card, has {player.resource_amounts[ResourceType.GRAIN]}g, {player.resource_amounts[ResourceType.WOOL]}w and {player.resource_amounts[ResourceType.ORE]}o."
+            )
 
         self._transfer_resources(player, None, DEVELOPMENT_CARD_COST)
 
@@ -889,24 +1004,34 @@ class Catan(_CatanBoard):
 
         :param color: The color of the player to discard resources for.
         :param resource_amounts: The amounts of resources to discard.
+
+        :raises ValueError
         """
 
-        assert all(
-            amount > 0 for amount in resource_amounts.values()
-        ), "Resource amounts must be positive."
+        if color not in self._color_to_player:
+            raise ValueError(f"Color must be in {self._color_to_player}, got {color}.")
+
+        if not all(amount > 0 for amount in resource_amounts.values()):
+            raise ValueError(
+                f"Cannot discard negative resources, got {resource_amounts}."
+            )
 
         player = self._color_to_player[color]
 
-        assert all(
+        if not all(
             player.resource_amounts[resource_type] >= resource_amount
             for resource_type, resource_amount in resource_amounts.items()
-        ), "Player cannot discard more resources than they have."
+        ):
+            raise ValueError(
+                f"Player does not have enough resources to discard {resource_amounts}."
+            )
 
         num_resources_discarded = sum(resource_amounts.values())
         num_player_resources = sum(player.resource_amounts.values())
-        assert (
-            num_resources_discarded == num_player_resources // 2
-        ), f"Player must discard half of their total resources (rounded down), has {num_player_resources}, discarded {num_resources_discarded}."
+        if num_resources_discarded != num_player_resources // 2:
+            raise ValueError(
+                f"Player must discard half of their total resources (rounded down), has {num_player_resources}, discarded {num_resources_discarded}."
+            )
 
         self._transfer_resources(player, None, resource_amounts)
 
@@ -922,43 +1047,57 @@ class Catan(_CatanBoard):
         :param resource_amounts_out: The amounts of resources the player is trading away.
         :param resource_amounts_in: The amounts of resources the player is receiving.
         :param color_to_trade_with: The color of the player to trade with.
+
+        :raises InvalidResourcesError:
+        :raises ValueError:
         """
+
+        if color_to_trade_with not in self._color_to_player:
+            raise ValueError(f"Player {color_to_trade_with} does not exist.")
 
         player = self.turn
 
-        assert (
-            color_to_trade_with is not player.color
-        ), "Player cannot trade with themself."
+        if color_to_trade_with is player.color:
+            raise ValueError(f"Player cannot trade with themselves.")
 
-        assert (
-            color_to_trade_with in self._color_to_player
-        ), "Player to trade with must be in the game."
+        if len(resource_amounts_out) <= 0:
+            raise ValueError(f"Player 1 must trade at least 1 resource.")
+        if len(resource_amounts_in) <= 0:
+            raise ValueError(f"Player 2 must trade at least 1 resource.")
 
-        assert len(resource_amounts_out) > 0, "Player 1 must trade at least 1 resource."
-        assert len(resource_amounts_in) > 0, "Player 2 must trade at least 1 resource."
+        if not all(amount > 0 for amount in resource_amounts_out.values()):
+            raise ValueError(
+                f"Player 1's resource amounts must all be positive, got {resource_amounts_out}."
+            )
+        if not all(amount > 0 for amount in resource_amounts_in.values()):
+            raise ValueError(
+                f"Player 2's resource amounts must all be positive, got {resource_amounts_in}."
+            )
 
-        assert all(
-            amount > 0 for amount in resource_amounts_out.values()
-        ), f"Player 1's resource amounts must all be positive, got {resource_amounts_out}."
-        assert all(
-            amount > 0 for amount in resource_amounts_in.values()
-        ), f"Player 2's resource amounts must all be positive, got {resource_amounts_in}."
-
-        assert not any(
+        if any(
             resource_type in resource_amounts_in
             for resource_type in resource_amounts_out
-        ), "Player cannot trade for the same resource they are trading away."
+        ):
+            raise ValueError(
+                f"Player 1 cannot trade a resource they are receiving, got {resource_amounts_out} and {resource_amounts_in}."
+            )
 
         player_to_trade_with = self._color_to_player[color_to_trade_with]
 
-        assert all(
+        if not all(
             player.resource_amounts[resource_type] >= resource_amount
             for resource_type, resource_amount in resource_amounts_out.items()
-        ), f"Player does not have enough resources to trade away, {resource_amounts_out}."
-        assert all(
+        ):
+            raise InvalidResourcesError(
+                f"Player does not have enough resources to trade away, got {resource_amounts_out}."
+            )
+        if not all(
             player_to_trade_with.resource_amounts[resource_type] >= resource_amount
             for resource_type, resource_amount in resource_amounts_in.items()
-        ), f"Player to trade with does not have enough resources to trade, {resource_amounts_in}."
+        ):
+            raise InvalidResourcesError(
+                f"Player to trade with does not have enough resources to trade, got {resource_amounts_in}."
+            )
 
         self._transfer_resources(player_to_trade_with, player, resource_amounts_in)
         self._transfer_resources(player, player_to_trade_with, resource_amounts_out)
@@ -968,9 +1107,9 @@ class Catan(_CatanBoard):
         Ends the current player's turn.
         """
 
-        self._turns_this_round += 1
-        if self._turns_this_round == len(self.players):
-            self._turns_this_round = 0
+        self.turns_this_round += 1
+        if self.turns_this_round == len(self.players):
+            self.turns_this_round = 0
             self.round += 1
 
         for development_card in self.turn.development_cards:
@@ -982,7 +1121,7 @@ class Catan(_CatanBoard):
 
         self.players = self.players[1:] + self.players[:1]
 
-        if self._turns_this_round == 0 and self.round in (2, 3):
+        if self.turns_this_round == 0 and self.round in (2, 3):
             self.players.reverse()
 
     def maritime_trade(
@@ -995,15 +1134,19 @@ class Catan(_CatanBoard):
 
         :param resource_type_out: The type of resource the player is trading out.
         :param resource_type_in: The type of resource the player is trading in.
+
+        :raises InvalidResourcesError:
+        :raises NotEnoughGameCardsError:
+        :raises ValueError
         """
 
-        assert (
-            resource_type_out is not resource_type_in
-        ), "Cannot trade the same resource."
+        if resource_type_out is resource_type_in:
+            raise ValueError(f"Cannot trade {resource_type_out} for itself.")
 
-        assert (
-            self.resource_amounts[resource_type_in] > 0
-        ), "Resource type is not in supply."
+        if self.resource_amounts[resource_type_in] == 0:
+            raise NotEnoughGameCardsError(
+                f"Not enough {resource_type_in} cards in the game."
+            )
 
         player = self.turn
 
@@ -1016,9 +1159,10 @@ class Catan(_CatanBoard):
         )
 
         player_resource_amount = player.resource_amounts[resource_type_out]
-        assert (
-            player_resource_amount >= resource_amount_out
-        ), f"Player does not have enough resources to trade {resource_amount_out}, has {player_resource_amount}."
+        if player_resource_amount < resource_amount_out:
+            raise InvalidResourcesError(
+                f"Player does not have enough resources to trade {resource_amount_out}, has {player_resource_amount}."
+            )
 
         self._transfer_resources(player, None, {resource_type_out: resource_amount_out})
         self._transfer_resources(None, player, {resource_type_in: 1})
@@ -1031,19 +1175,29 @@ class Catan(_CatanBoard):
 
         :param new_robber_tile_idx: The index of the tile to move the robber to.
         :param color_to_take_from: The color of the player to take cards from or None if no valid options.
+
+        :raises RobberError:
+        :raises ValueError:
         """
+
+        if new_robber_tile_idx not in TILE_IDXS:
+            raise ValueError(f"Invalid tile index {new_robber_tile_idx}.")
+
+        if (
+            color_to_take_from is not None
+            and color_to_take_from not in self._color_to_player
+        ):
+            raise ValueError(f"Invalid color {color_to_take_from}.")
 
         player = self.turn
 
-        assert (
-            color_to_take_from is None or color_to_take_from is not player.color
-        ), "Player cannot take cards from themselves."
+        if color_to_take_from is not None and color_to_take_from is player.color:
+            raise ValueError(f"Player cannot take from themselves.")
 
         new_robber_tile = self.tiles[new_robber_tile_idx]
 
-        assert (
-            new_robber_tile is not self.robber_tile
-        ), "Robber must not be on the same tile."
+        if new_robber_tile is self.robber_tile:
+            raise RobberError(f"Robber is already on tile {new_robber_tile_idx}.")
 
         colors_on_tile = {
             adj_vertex.building.color
@@ -1052,35 +1206,36 @@ class Catan(_CatanBoard):
         }
 
         if color_to_take_from is not None:
-            assert (
-                color_to_take_from in colors_on_tile
-            ), f"Player {color_to_take_from.name} does not have any buildilngs on the robber tile."
+            if color_to_take_from not in colors_on_tile:
+                raise ValueError(
+                    f"Player {color_to_take_from.name} does not have any buildilngs on the robber tile."
+                )
 
             player_to_take_from = self._color_to_player[color_to_take_from]
 
-            assert any(
-                amount > 0 for amount in player_to_take_from.resource_amounts.values()
-            ), f"{player_to_take_from} does not have any resources."
-
-            self._transfer_resources(
-                player_to_take_from,
-                player,
-                {
-                    choices(
-                        list(ResourceType),
-                        player_to_take_from.resource_amounts.values(),
-                    )[0]: 1
-                },
-            )
+            if sum(player_to_take_from.resource_amounts.values()) > 0:
+                self._transfer_resources(
+                    player_to_take_from,
+                    player,
+                    {
+                        choices(
+                            list(ResourceType),
+                            player_to_take_from.resource_amounts.values(),
+                        )[0]: 1
+                    },
+                )
 
         else:
-            assert not any(
+            if any(
                 any(
                     amount > 0
                     for amount in self._color_to_player[color].resource_amounts.values()
                 )
                 for color in colors_on_tile
-            ), "Must take cards from a player on the robber tile if possible."
+            ):
+                raise ValueError(
+                    "Must take cards from a player on the robber tile if possible."
+                )
 
         self.robber_tile.has_robber = False
         new_robber_tile.has_robber = True
@@ -1094,14 +1249,21 @@ class Catan(_CatanBoard):
 
         :param new_robber_tile_idx: The index of the tile to move the robber to.
         :param color_to_take_from: The color of the player to take cards from or None if no valid options.
+
+        :raises DevelopmentCardError:
+        :raises RobberError:
+        :raises ValueError:
         """
 
         player = self.turn
 
-        assert (
+        if (
             DevelopmentCard(DevelopmentCardType.KNIGHT, True)
-            in player.development_cards
-        ), "Player must have a knight bought on a previous turn to play a knight."
+            not in player.development_cards
+        ):
+            raise DevelopmentCardError(
+                "Player must have a knight bought on a previous turn to play a knight."
+            )
 
         self.move_robber(new_robber_tile_idx, color_to_take_from)
 
@@ -1128,14 +1290,19 @@ class Catan(_CatanBoard):
         Plays a monopoly development card.
 
         :param resource_type: The type of resource to monopolize.
+
+        :raises DevelopmentCardError:
         """
 
         player = self.turn
 
-        assert (
+        if (
             DevelopmentCard(DevelopmentCardType.MONOPOLY, True)
-            in player.development_cards
-        ), "Player must have a monopoly bought on a previous turn to play a monopoly."
+            not in player.development_cards
+        ):
+            raise DevelopmentCardError(
+                "Player must have a monopoly bought on a previous turn to play a monopoly."
+            )
 
         player.development_cards.remove(
             DevelopmentCard(DevelopmentCardType.MONOPOLY, True)
@@ -1157,43 +1324,70 @@ class Catan(_CatanBoard):
 
         :param edge_idx_1: The index of the first edge.
         :param edge_idx_2: The index of the second edge, or None if the player only has one road left.
+
+        :raises BuildLocationError:
+        :raises DevelopmentCardError:
+        :raises NotEnoughPiecesError:
+        :raises ValueError:
         """
+
+        if edge_idx_1 not in EDGE_IDXS:
+            raise ValueError(f"Invalid edge index {edge_idx_1}.")
+        if edge_idx_2 is not None and edge_idx_2 not in EDGE_IDXS:
+            raise ValueError(f"Invalid edge index {edge_idx_2}.")
 
         player = self.turn
 
-        assert (
+        if (
             DevelopmentCard(DevelopmentCardType.ROAD_BUILDING, True)
-            in player.development_cards
-        ), "Player must have a road building bought on a previous turn to play a road building."
+            not in player.development_cards
+        ):
+            raise DevelopmentCardError(
+                "Player must have a road building bought on a previous turn to play a road building."
+            )
 
-        assert player.roads_left >= 1, "Player must have enough roads left."
-        assert (edge_idx_2 is None) == (player.roads_left == 1), "Must use all roads."
+        if (edge_idx_2 is None) != (player.roads_left == 1):
+            raise ValueError("Must use all roads.")
+        if player.roads_left == 0:
+            raise NotEnoughPiecesError("Player does not have any roads left.")
 
         edge_1 = self.edges[edge_idx_1]
 
-        assert edge_1.road is None, "Edge 1 must be unoccupied to build a road."
+        if edge_1.road is not None:
+            raise BuildLocationError("Edge 1 must be unoccupied to build a road.")
 
-        assert any(
-            adj_edge.road == Road(player.color) for adj_edge in edge_1.adj_edges
-        ) or any(
-            adj_vertex.building is not None
-            and adj_vertex.building.color is player.color
-            for adj_vertex in edge_1.adj_vertices
-        ), "Edge 1 must have an adjacent road, settlement, or city of the same color to build a road."
+        if not (
+            any(adj_edge.road == Road(player.color) for adj_edge in edge_1.adj_edges)
+            or any(
+                adj_vertex.building is not None
+                and adj_vertex.building.color is player.color
+                for adj_vertex in edge_1.adj_vertices
+            )
+        ):
+            raise BuildLocationError(
+                "Edge 1 must have an adjacent road, settlement, or city of the same color to build a road."
+            )
 
         if edge_idx_2 is not None:
             edge_2 = self.edges[edge_idx_2]
 
-            assert edge_2.road is None, "Edge 2 must be unoccupied to build a road."
+            if edge_2.road is not None:
+                raise BuildLocationError("Edge 2 must be unoccupied to build a road.")
 
-            assert any(
-                adj_edge.road == Road(player.color) or adj_edge is edge_1
-                for adj_edge in edge_2.adj_edges
-            ) or any(
-                adj_vertex.building is not None
-                and adj_vertex.building.color is player.color
-                for adj_vertex in edge_2.adj_vertices
-            ), f"Edge 2 must have an adjacent road, settlement, or city of the same color to build a road."
+            if not (
+                any(
+                    adj_edge.road == Road(player.color) or adj_edge is edge_1
+                    for adj_edge in edge_2.adj_edges
+                )
+                or any(
+                    adj_vertex.building is not None
+                    and adj_vertex.building.color is player.color
+                    for adj_vertex in edge_2.adj_vertices
+                )
+            ):
+                raise BuildLocationError(
+                    "Edge 2 must have an adjacent road, settlement, or city of the same color to build a road."
+                )
 
         player.development_cards.remove(
             DevelopmentCard(DevelopmentCardType.ROAD_BUILDING, True)
@@ -1212,11 +1406,26 @@ class Catan(_CatanBoard):
 
         :param resource_type_1: The type of the first resource to take.
         :param resource_type_2: The type of the second resource to take, or None if only one resource is taken.
+
+        :raises DevelopmentCardError:
+        :raises NotEnoughGameCardsError:
+        :raises ValueError:
         """
 
-        assert (resource_type_2 is None) == (
-            sum(self.resource_amounts.values()) == 1
-        ), "Must only take one card when there is only one card left."
+        player = self.turn
+
+        if (
+            DevelopmentCard(DevelopmentCardType.YEAR_OF_PLENTY, True)
+            not in player.development_cards
+        ):
+            raise DevelopmentCardError(
+                "Player must have a year of plenty bought on a previous turn to play a year of plenty."
+            )
+
+        if (resource_type_2 is None) != (sum(self.resource_amounts.values()) == 1):
+            raise ValueError(
+                "Must only take one card when there is only one card left."
+            )
 
         resource_amounts = defaultdict(int)
 
@@ -1225,17 +1434,11 @@ class Catan(_CatanBoard):
         if resource_type_2 is not None:
             resource_amounts[resource_type_2] += 1
 
-        assert all(
+        if not all(
             self.resource_amounts[resource_type] >= amount
             for resource_type, amount in resource_amounts.items()
-        ), "Must have enough resources left."
-
-        player = self.turn
-
-        assert (
-            DevelopmentCard(DevelopmentCardType.YEAR_OF_PLENTY, True)
-            in player.development_cards
-        ), "Player must have a year of plenty bought on a previous turn to play a year of plenty."
+        ):
+            raise NotEnoughGameCardsError("Must have enough resources in supply.")
 
         player.development_cards.remove(
             DevelopmentCard(DevelopmentCardType.YEAR_OF_PLENTY, True)
@@ -1248,9 +1451,12 @@ class Catan(_CatanBoard):
         Gives resources to players based on the token.
 
         :param token: The token to produce resources for.
+
+        :raises ValueError:
         """
 
-        assert token in TOKENS, "Token must be valid."
+        if token not in TOKENS:
+            raise ValueError("Token must be valid.")
 
         for tile in self.token_to_tiles[token]:
             if tile.has_robber:
