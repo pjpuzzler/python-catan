@@ -51,6 +51,19 @@ BASE_DEVELOPMENT_CARD_TYPES = (
     + [DevelopmentCardType.VICTORY_POINT] * 5
 )
 
+
+class Action(Enum):
+    (
+        END_TURN,
+        PLAY_DEVELOPMENT_CARD,
+        TRADE_DOMESTIC,
+        TRADE_MARITIME,
+        BUILD_ROAD,
+        BUILD_UPGRADE_SETTLEMENT,
+        BUY_DEVELOPMENT_CARD,
+    ) = range(7)
+
+
 HarborIdx = int
 HARBOR_IDXS = range(9)
 
@@ -1540,3 +1553,93 @@ class Catan(_CatanBoard):
         """
 
         return randint(1, 6) + randint(1, 6)
+
+
+def main() -> None:
+    """General usage"""
+
+    c = Catan()
+
+    while c.is_set_up:
+        for player in c.players:
+            edge_idx = ...
+            vertex_idx = ...
+            c.build_set_up_phase(vertex_idx, edge_idx)
+
+    while not c.is_game_over:
+        roll = c.roll_dice()
+        if roll == 7:
+            for player in c.players:
+                num_resources = sum(player.resource_amounts.values())
+                if num_resources > 7:
+                    amounts = [...]
+                    resource_amounts = dict(zip(ResourceType, amounts))
+                    c.discard_half(player.color, resource_amounts)
+
+            new_robber_tile_idx = ...
+            color_to_take_from = ...
+            c.move_robber(new_robber_tile_idx, color_to_take_from)
+        else:
+            c.produce_resources(roll)
+
+        while True:
+            action = ...
+            if action is Action.PLAY_DEVELOPMENT_CARD:
+                development_card_type = ...
+                if development_card_type is DevelopmentCardType.KNIGHT:
+                    new_robber_tile_idx = ...
+                    color_to_take_from = ...
+                    c.play_knight(new_robber_tile_idx, color_to_take_from)
+                elif development_card_type is DevelopmentCardType.ROAD_BUILDING:
+                    edge_idx_1 = ...
+                    edge_idx_2 = ...
+                    c.play_road_building(edge_idx_1, edge_idx_2)
+                elif development_card_type is DevelopmentCardType.YEAR_OF_PLENTY:
+                    resource_type_1 = ...
+                    if sum(c.resource_amounts.values()) == 1:
+                        resource_type_2 = None
+                    else:
+                        resource_type_2 = ...
+                    c.play_year_of_plenty(resource_type_1, resource_type_2)
+                elif development_card_type is DevelopmentCardType.MONOPOLY:
+                    resource_type = ...
+                    c.play_monopoly(resource_type)
+            elif action is Action.TRADE_DOMESTIC:
+                amounts_out = [...]
+                amounts_in = [...]
+                resource_amounts_out = dict(zip(ResourceType, amounts_out))
+                resource_amounts_in = dict(zip(ResourceType, amounts_in))
+
+                for player in c.players[1:]:
+                    other_action = ...
+                    if other_action is Action.ACCEPT_TRADE:
+                        color_to_trade_with = player.color
+                        c.domestic_trade(
+                            resource_amounts_out,
+                            resource_amounts_in,
+                            color_to_trade_with,
+                        )
+                        break
+            elif action is Action.TRADE_MARITIME:
+                resource_type_out = ...
+                resource_type_in = ...
+                c.maritime_trade(resource_type_out, resource_type_in)
+            elif action is Action.BUILD_ROAD:
+                edge_idx = ...
+                c.build_road(edge_idx)
+            elif action is Action.BUILD_UPGRADE_SETTLEMENT:
+                vertex_idx = ...
+                if c.vertices[vertex_idx].building is None:
+                    c.build_settlement(vertex_idx)
+                else:
+                    c.build_city(vertex_idx)
+            elif action is Action.BUY_DEVELOPMENT_CARD:
+                c.buy_development_card()
+            elif action is Action.END_TURN:
+                break
+
+    c.winner
+
+
+if __name__ == "__main__":
+    main()
