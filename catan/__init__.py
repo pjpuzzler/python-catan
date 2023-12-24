@@ -176,13 +176,14 @@ class DevelopmentCard:
 
 @dataclass(eq=False)
 class Edge:
+    idx: int
     road: Road | None = None
 
     adj_edges: tuple[Edge] | None = None
     adj_vertices: tuple[Vertex] | None = None
 
     def __repr__(self) -> str:
-        return f"Edge({self.road})"
+        return f"Edge({self.idx}, {self.road})"
 
 
 @dataclass(eq=False)
@@ -215,17 +216,21 @@ class Road:
 
 @dataclass(eq=False)
 class Tile:
+    idx: int
     tile_type: TileType
     has_robber: bool = False
 
     adj_vertices: tuple[Vertex] | None = None
 
     def __repr__(self) -> str:
-        return f"Tile({self.tile_type.name}" + (", R)" if self.has_robber else ")")
+        return f"Tile({self.idx}, {self.tile_type.name}" + (
+            ", R)" if self.has_robber else ")"
+        )
 
 
 @dataclass(eq=False)
 class Vertex:
+    idx: int
     harbor_type: HarborType | None
 
     building: Building | None = None
@@ -235,7 +240,7 @@ class Vertex:
     adj_vertices: tuple[Vertex] | None = None
 
     def __repr__(self) -> str:
-        return f"Vertex({self.building})"
+        return f"Vertex({self.idx}, {self.building})"
 
 
 class _CatanBoard:
@@ -341,6 +346,7 @@ class _CatanBoard:
 
     def __init__(
         self,
+        *,
         tile_types: list[TileType] | None = None,
         tokens: list[Token | None] | None = None,
         harbor_types: list[HarborType] | None = None,
@@ -355,16 +361,17 @@ class _CatanBoard:
 
         self._harbor_types = harbor_types
 
-        self.edges = [Edge() for _ in EDGE_IDXS]
+        self.edges = [Edge(edge_idx) for edge_idx in EDGE_IDXS]
         self.tiles = [
-            Tile(tile_type, has_robber=(tile_type is TileType.DESERT))
-            for tile_type in tile_types
+            Tile(tile_idx, tile_type, has_robber=(tile_type is TileType.DESERT))
+            for tile_idx, tile_type in enumerate(tile_types)
         ]
         self.vertices = [
             Vertex(
+                vertex_idx,
                 harbor_type=harbor_types[self._VERTEX_IDX_TO_HARBOR_IDX[vertex_idx]]
                 if vertex_idx in self._VERTEX_IDX_TO_HARBOR_IDX
-                else None
+                else None,
             )
             for vertex_idx in VERTEX_IDXS
         ]
@@ -485,6 +492,16 @@ class _CatanBoard:
             else "\033[2m.\033[0m"
         )
 
+    def svg(self, *, show_indices: bool = False) -> str:
+        """
+        Returns an SVG representation of the board.
+        """
+
+        import catan.svg
+        from IPython.display import SVG
+
+        return SVG(catan.svg.board(self, show_indices))
+
     def __str__(self) -> str:
         # fmt: off
         return ''.join(
@@ -591,13 +608,9 @@ class _CatanBoard:
         # fmt: on
 
     def _repr_svg_(self) -> str:
-        """
-        Returns an SVG representation of the board.
-        """
-
         import catan.svg
 
-        return catan.svg.board(self)
+        return catan.svg.board(self, False)
 
 
 class Catan(_CatanBoard):
@@ -618,6 +631,7 @@ class Catan(_CatanBoard):
 
     def __init__(
         self,
+        *,
         colors: list[Color] = list(Color),
         tile_types: list[TileType] | None = None,
         tokens: list[Token | None] | None = None,
@@ -676,7 +690,9 @@ class Catan(_CatanBoard):
                     f"Harbor types must have all harbors, got {harbor_types}."
                 )
 
-        super().__init__(tile_types, tokens, harbor_types)
+        super().__init__(
+            tile_types=tile_types, tokens=tokens, harbor_types=harbor_types
+        )
 
         if shuffle_order:
             shuffle(colors)

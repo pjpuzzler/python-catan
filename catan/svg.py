@@ -54,23 +54,28 @@ def _draw_hex(
     fill,
     number,
     rot,
+    show_indices,
     row=None,
     col=None,
     visited_vertices=None,
     visited_edges=None,
     others=None,
 ):
+    if row is not None and col is not None:
+        tile_idx = _COORDS_TO_TILE_IDX[row, col]
+    else:
+        tile_idx = None
     if fill is None:
-        tile = c.tiles[_COORDS_TO_TILE_IDX[row, col]]
+        tile = c.tiles[tile_idx]
         fill = _TILE_TYPE_COLORS[tile.tile_type]
         if tile.has_robber:
             others.append(
-                f'<circle cx="{x}" cy="{y}" r="{size / 2.5}" fill="black" fill-opacity="0.4" />'
+                f'<circle cx="{x}" cy="{y}" r="{size / 3}" fill="black" fill-opacity="0.4" />'
             )
     else:
         tile = None
     if number is None:
-        number = c._tokens[_COORDS_TO_TILE_IDX[row, col]]
+        number = c._tokens[tile_idx]
         if number is None:
             number = ""
     points = []
@@ -90,37 +95,114 @@ def _draw_hex(
             )
             if vertex not in visited_vertices:
                 if vertex.building is not None:
-                    s = (
-                        20
-                        if vertex.building.building_type is catan.BuildingType.CITY
-                        else 14
-                    )
+                    vx, vy = point_x - 7, point_y - 7 - 1
+                    if vertex.building.building_type is catan.BuildingType.CITY:
+                        # others.append(
+                        #     f'<rect width="{s}" height="{s}" transform="rotate(45 {vx + s/2} {vy + s/2})" x="{vx}" y="{vy}" fill="{_COLOR_COLORS[vertex.building.color]}" />'
+                        # )
+                        ps = " ".join(
+                            map(
+                                str,
+                                [
+                                    vx - 7,
+                                    vy,
+                                    vx + 7,
+                                    vy,
+                                    vx + 7,
+                                    vy - 6,
+                                    vx + 14,
+                                    vy - 7 - 6,
+                                    vx + 21,
+                                    vy - 6,
+                                    vx + 21,
+                                    vy + 14,
+                                    vx - 7,
+                                    vy + 14,
+                                ],
+                            )
+                        )
+                        others.append(
+                            f'<polygon points="{ps}" fill="{_COLOR_COLORS[vertex.building.color]}" />'
+                        )
+                    else:
+                        ps = " ".join(
+                            map(
+                                str,
+                                [
+                                    vx,
+                                    vy,
+                                    vx + 7,
+                                    vy - 7,
+                                    vx + 14,
+                                    vy,
+                                    vx + 14,
+                                    vy + 14,
+                                    vx,
+                                    vy + 14,
+                                ],
+                            )
+                        )
+                        others.append(
+                            f'<polygon points="{ps}" fill="{_COLOR_COLORS[vertex.building.color]}" />'
+                        )
+                if show_indices:
                     others.append(
-                        f'<rect width="{s}" height="{s}" x="{point_x - s / 2}" y="{point_y - s / 2 - 1}" fill="{_COLOR_COLORS[vertex.building.color]}" />'
+                        f'<text x="{point_x}" y="{point_y - 1}" font-size="{10}" fill="black" text-anchor="middle">{vertex.idx}</text>'
                     )
                 visited_vertices.add(vertex)
             if i > 0 and edge not in visited_edges:
+                x1, y1 = point_x, point_y
+                x2, y2 = points[-4], points[-3]
+                x_1_5, y_1_5 = x1 + (x2 - x1) * (1 / 5), y1 + (y2 - y1) * (1 / 5)
+                x_4_5, y_4_5 = x1 + (x2 - x1) * (4 / 5), y1 + (y2 - y1) * (4 / 5)
                 if edge.road is not None:
-                    x1, y1 = point_x, point_y
-                    x2, y2 = points[-4], points[-3]
-                    x_1_5, y_1_5 = x1 + (x2 - x1) * (1 / 5), y1 + (y2 - y1) * (1 / 5)
-                    x_4_5, y_4_5 = x1 + (x2 - x1) * (4 / 5), y1 + (y2 - y1) * (4 / 5)
                     others.append(
                         f'<line x1="{x_1_5}" y1="{y_1_5}" x2="{x_4_5}" y2="{y_4_5}" stroke="{_COLOR_COLORS[edge.road.color]}" stroke-width="6" />'
                     )
+                if show_indices:
+                    others.append(
+                        f'<text x="{(x_1_5 + x_4_5) / 2}" y="{(y_1_5 + y_4_5) / 2}" font-size="{10}" fill="black" text-anchor="middle" font-style="italic">{edge.idx}</text>'
+                    )
                 visited_edges.add(edge)
+
+    if tile is not None:
+        i = 0
+        adj_vertex_idx = (i + 2) % 6
+        vertex = tile.adj_vertices[adj_vertex_idx]
+        (edge,) = set(vertex.adj_edges) & set(
+            tile.adj_vertices[(adj_vertex_idx - 1) % 6].adj_edges
+        )
+        if edge not in visited_edges:
+            x1, y1 = points[0], points[1]
+            x2, y2 = points[-2], points[-1]
+            x_1_5, y_1_5 = x1 + (x2 - x1) * (1 / 5), y1 + (y2 - y1) * (1 / 5)
+            x_4_5, y_4_5 = x1 + (x2 - x1) * (4 / 5), y1 + (y2 - y1) * (4 / 5)
+            if edge.road is not None:
+                others.append(
+                    f'<line x1="{x_1_5}" y1="{y_1_5}" x2="{x_4_5}" y2="{y_4_5}" stroke="{_COLOR_COLORS[edge.road.color]}" stroke-width="6" />'
+                )
+            if show_indices:
+                others.append(
+                    f'<text x="{(x_1_5 + x_4_5) / 2}" y="{(y_1_5 + y_4_5) / 2}" font-size="{10}" fill="black" text-anchor="middle" font-style="italic">{edge.idx}</text>'
+                )
+            visited_edges.add(edge)
+
     if tile is not None:
         (edge,) = set(tile.adj_vertices[0].adj_edges) & set(
             tile.adj_vertices[5].adj_edges
         )
         if edge not in visited_edges:
+            x1, y1 = points[0], points[1]
+            x2, y2 = points[-2], points[-1]
+            x_1_5, y_1_5 = x1 + (x2 - x1) * (1 / 5), y1 + (y2 - y1) * (1 / 5)
+            x_4_5, y_4_5 = x1 + (x2 - x1) * (4 / 5), y1 + (y2 - y1) * (4 / 5)
             if edge.road is not None:
-                x1, y1 = points[0], points[1]
-                x2, y2 = points[-2], points[-1]
-                x_1_5, y_1_5 = x1 + (x2 - x1) * (1 / 5), y1 + (y2 - y1) * (1 / 5)
-                x_4_5, y_4_5 = x1 + (x2 - x1) * (4 / 5), y1 + (y2 - y1) * (4 / 5)
                 others.append(
                     f'<line x1="{x_1_5}" y1="{y_1_5}" x2="{x_4_5}" y2="{y_4_5}" stroke="{_COLOR_COLORS[edge.road.color]}" stroke-width="6" />'
+                )
+            if show_indices:
+                others.append(
+                    f'<text x="{(x_1_5 + x_4_5) / 2}" y="{(y_1_5 + y_4_5) / 2}" font-size="{10}" fill="black" text-anchor="middle" font-style="italic">{edge.idx}</text>'
                 )
             visited_edges.add(edge)
     points = " ".join(map(str, points))
@@ -130,10 +212,13 @@ def _draw_hex(
     else:
         number_fill = "white"
         font_reduction = 0
-    return f'<polygon points="{points}" fill="{fill}" stroke="black" stroke-width="1" /><text x="{x}" y="{y+10-font_reduction/6}" font-size="{30-font_reduction}" fill="{number_fill}" text-anchor="middle">{number}</text>'
+    s = f'<polygon points="{points}" fill="{fill}" stroke="black" stroke-width="1" /><text x="{x}" y="{y+10-font_reduction/6}" font-size="{30-font_reduction}" fill="{number_fill}" text-anchor="middle">{number}</text>'
+    if show_indices:
+        s += f'<text x="{x}" y="{y+30-20/6}" font-size="{10}" fill="black" text-anchor="middle" font-weight="bold">{tile_idx}</text>'
+    return s
 
 
-def board(c: catan._CatanBoard) -> str:
+def board(c: catan._CatanBoard, show_indices: bool) -> str:
     size = 50
     width = size * 0.8660254 * 2 * 5 + size * 2.5
     height = width * 0.8660254
@@ -141,7 +226,7 @@ def board(c: catan._CatanBoard) -> str:
     svg = f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}">'
     svg += '<rect width="100%" height="100%" fill="#1f1f1f" />'
 
-    svg += _draw_hex(c, width / 2, height / 2, width / 2, "#3c9cf0", "", 0)
+    svg += _draw_hex(c, width / 2, height / 2, width / 2, "#3c9cf0", "", 0, False)
 
     others = []
 
@@ -264,6 +349,7 @@ def board(c: catan._CatanBoard) -> str:
                 None,
                 None,
                 30,
+                show_indices,
                 row,
                 col,
                 visited_vertices,
