@@ -60,6 +60,9 @@ def _draw_hex(
     visited_vertices=None,
     visited_edges=None,
     others=None,
+    buildings=None,
+    roads=None,
+    indices=None,
 ):
     if row is not None and col is not None:
         tile_idx = _COORDS_TO_TILE_IDX[row, col]
@@ -121,8 +124,8 @@ def _draw_hex(
                                 ],
                             )
                         )
-                        others.append(
-                            f'<polygon points="{ps}" fill="{_COLOR_COLORS[vertex.building.color]}" />'
+                        buildings.append(
+                            f'<polygon points="{ps}" fill="{_COLOR_COLORS[vertex.building.color]}" style="stroke:black" />'
                         )
                     else:
                         ps = " ".join(
@@ -142,11 +145,11 @@ def _draw_hex(
                                 ],
                             )
                         )
-                        others.append(
-                            f'<polygon points="{ps}" fill="{_COLOR_COLORS[vertex.building.color]}" />'
+                        buildings.append(
+                            f'<polygon points="{ps}" fill="{_COLOR_COLORS[vertex.building.color]}" style="stroke:black" />'
                         )
                 if show_indices:
-                    others.append(
+                    indices.append(
                         f'<text x="{point_x}" y="{point_y - 1}" font-size="{10}" fill="black" text-anchor="middle">{vertex.idx}</text>'
                     )
                 visited_vertices.add(vertex)
@@ -156,12 +159,15 @@ def _draw_hex(
                 x_1_5, y_1_5 = x1 + (x2 - x1) * (1 / 5), y1 + (y2 - y1) * (1 / 5)
                 x_4_5, y_4_5 = x1 + (x2 - x1) * (4 / 5), y1 + (y2 - y1) * (4 / 5)
                 if edge.road is not None:
-                    others.append(
+                    # roads.append(
+                    #     f'<line x1="{x_1_5}" y1="{y_1_5}" x2="{x_4_5}" y2="{y_4_5}" stroke="black" stroke-width="10" stroke-linecap="square" />'
+                    # )
+                    roads.append(
                         f'<line x1="{x_1_5}" y1="{y_1_5}" x2="{x_4_5}" y2="{y_4_5}" stroke="{_COLOR_COLORS[edge.road.color]}" stroke-width="6" />'
-                    )
+                    )  # TODO: border
                 if show_indices:
-                    others.append(
-                        f'<text x="{(x_1_5 + x_4_5) / 2}" y="{(y_1_5 + y_4_5) / 2}" font-size="{10}" fill="black" text-anchor="middle" font-style="italic">{edge.idx}</text>'
+                    indices.append(
+                        f'<text x="{(x1 + x2) / 2}" y="{(y1 + y2) / 2}" font-size="{10}" fill="black" text-anchor="middle">{edge.idx}</text>'
                     )
                 visited_edges.add(edge)
 
@@ -178,31 +184,15 @@ def _draw_hex(
             x_1_5, y_1_5 = x1 + (x2 - x1) * (1 / 5), y1 + (y2 - y1) * (1 / 5)
             x_4_5, y_4_5 = x1 + (x2 - x1) * (4 / 5), y1 + (y2 - y1) * (4 / 5)
             if edge.road is not None:
-                others.append(
+                # roads.append(
+                #     f'<line x1="{x_1_5}" y1="{y_1_5}" x2="{x_4_5}" y2="{y_4_5}" stroke="black" stroke-width="10" stroke-linecap="square" />'
+                # )
+                roads.append(
                     f'<line x1="{x_1_5}" y1="{y_1_5}" x2="{x_4_5}" y2="{y_4_5}" stroke="{_COLOR_COLORS[edge.road.color]}" stroke-width="6" />'
-                )
+                )  # TODO: border
             if show_indices:
-                others.append(
-                    f'<text x="{(x_1_5 + x_4_5) / 2}" y="{(y_1_5 + y_4_5) / 2}" font-size="{10}" fill="black" text-anchor="middle" font-style="italic">{edge.idx}</text>'
-                )
-            visited_edges.add(edge)
-
-    if tile is not None:
-        (edge,) = set(tile.adj_vertices[0].adj_edges) & set(
-            tile.adj_vertices[5].adj_edges
-        )
-        if edge not in visited_edges:
-            x1, y1 = points[0], points[1]
-            x2, y2 = points[-2], points[-1]
-            x_1_5, y_1_5 = x1 + (x2 - x1) * (1 / 5), y1 + (y2 - y1) * (1 / 5)
-            x_4_5, y_4_5 = x1 + (x2 - x1) * (4 / 5), y1 + (y2 - y1) * (4 / 5)
-            if edge.road is not None:
-                others.append(
-                    f'<line x1="{x_1_5}" y1="{y_1_5}" x2="{x_4_5}" y2="{y_4_5}" stroke="{_COLOR_COLORS[edge.road.color]}" stroke-width="6" />'
-                )
-            if show_indices:
-                others.append(
-                    f'<text x="{(x_1_5 + x_4_5) / 2}" y="{(y_1_5 + y_4_5) / 2}" font-size="{10}" fill="black" text-anchor="middle" font-style="italic">{edge.idx}</text>'
+                indices.append(
+                    f'<text x="{(x1 + x2) / 2}" y="{(y1 + y2) / 2}" font-size="{10}" fill="black" text-anchor="middle">{edge.idx}</text>'
                 )
             visited_edges.add(edge)
     points = " ".join(map(str, points))
@@ -228,7 +218,7 @@ def board(c: catan._CatanBoard, show_indices: bool) -> str:
 
     svg += _draw_hex(c, width / 2, height / 2, width / 2, "#3c9cf0", "", 0, False)
 
-    others = []
+    others, buildings, roads, indices = [], [], [], []
 
     harbor_colors = [
         _HARBOR_TYPE_COLORS[harbor_type] for harbor_type in c._harbor_types
@@ -355,8 +345,14 @@ def board(c: catan._CatanBoard, show_indices: bool) -> str:
                 visited_vertices,
                 visited_edges,
                 others,
+                buildings,
+                roads,
+                indices,
             )
 
     svg += "".join(others)
+    svg += "".join(roads)
+    svg += "".join(buildings)
+    svg += "".join(indices)
     svg += "</svg>"
     return svg
