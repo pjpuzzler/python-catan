@@ -60,6 +60,7 @@ BASE_DEVELOPMENT_CARD_TYPES = (
 class Action(Enum):
     (
         END_TURN,
+        BUILD_SET_UP,
         PLAY_DEVELOPMENT_CARD,
         TRADE_DOMESTIC,
         TRADE_MARITIME,
@@ -67,7 +68,7 @@ class Action(Enum):
         BUILD_SETTLEMENT,
         BUILD_CITY,
         BUY_DEVELOPMENT_CARD,
-    ) = range(8)
+    ) = range(9)
 
 
 HarborIdx = int
@@ -730,10 +731,15 @@ class Catan(_CatanBoard):
 
         edge.road = Road(player.color)
 
+        added_connected_edge_idxs, added_connected_vertex_idxs = [], []
         for adj_edge in edge.adj_edges:
-            self._connected_edges[player.color].add(adj_edge.idx)
+            if adj_edge.idx not in self._connected_edges[player.color]:
+                added_connected_edge_idxs.append(adj_edge.idx)
+                self._connected_edges[player.color].add(adj_edge.idx)
         for adj_vertex in edge.adj_vertices:
-            self._connected_vertices[player.color].add(adj_vertex.idx)
+            if adj_vertex.idx not in self._connected_vertices[player.color]:
+                added_connected_vertex_idxs.append(adj_vertex.idx)
+                self._connected_vertices[player.color].add(adj_vertex.idx)
 
         longest_road = 0
         stack = [edge]
@@ -772,28 +778,45 @@ class Catan(_CatanBoard):
             self._action_stack[-1].append(
                 [
                     edge,
+                    added_connected_edge_idxs,
+                    added_connected_vertex_idxs,
                     prev_longest_road,
                     became_longest_road_player,
                     prev_longest_road_player,
                 ]
             )
 
-    def __build_settlement(self, vertex: Vertex) -> None:
+    def __build_settlement(self, vertex: Vertex, *, save_state: bool = False) -> None:
         player = self.turn
 
         player.settlements_left -= 1
 
         vertex.building = Building(player.color)
 
-        for adj_edge in vertex.adj_edges:
-            self._connected_edges[player.color].add(adj_edge.idx)
+        added_distance_rule_vertex_idxs = []
         for adj_vertex in vertex.adj_vertices:
-            self._distance_rule_vertices.add(adj_vertex.idx)
+            if adj_vertex.idx not in self._distance_rule_vertices:
+                added_distance_rule_vertex_idxs.append(adj_vertex.idx)
+                self._distance_rule_vertices.add(adj_vertex.idx)
 
         player.victory_points += 1
 
-        if vertex.harbor_type is not None:
+        added_harbor_type = None
+        if (
+            vertex.harbor_type is not None
+            and vertex.harbor_type not in player.harbor_types
+        ):
+            added_harbor_type = vertex.harbor_type
             player.harbor_types.add(vertex.harbor_type)
+
+        if save_state:
+            self._action_stack[-1].append(
+                [
+                    vertex,
+                    added_distance_rule_vertex_idxs,
+                    added_harbor_type,
+                ]
+            )
 
     def _build_city(self, vertex_idx: VertexIdx) -> None:
         """
@@ -887,6 +910,70 @@ class Catan(_CatanBoard):
         self._transfer_resources(player, None, ROAD_COST)
 
         self.__build_road(edge)
+
+    def _build_set_up(
+        self, vertex_idx: VertexIdx, edge_idx: EdgeIdx, *, save_state: bool = False
+    ) -> None:
+        """
+        Builds a settlement and road in the set-up phase. Automatically ends the turn and distributes resources if necessary.
+
+        :param vertex_idx: The index of the vertex to build the settlement on.
+        :param edge_idx: The index of the edge to build the road on.
+
+        :raises BuildLocationError:
+        :raises PhaseError:
+        :raises ValueError:
+        """
+
+        if vertex_idx not in VERTEX_IDXS:
+            raise ValueError(
+                f"Vertex index must be in {VERTEX_IDXS}, got {vertex_idx}."
+            )
+        if edge_idx not in EDGE_IDXS:
+            raise ValueError(f"Edge index must be in {EDGE_IDXS}, got {edge_idx}.")
+
+        if not self.is_set_up:
+            raise PhaseError("Set-up phase is over.")
+
+        player = self.turn
+
+        vertex = self.vertices[vertex_idx]
+
+        if vertex.building is not None:
+            raise BuildLocationError(
+                f"Vertex {vertex_idx} already has a building on it."
+            )
+
+        if not all(adj_vertex.building is None for adj_vertex in vertex.adj_vertices):
+            raise BuildLocationError(
+                f"Cannot have a settlement or city adjacent to vertex {vertex_idx}."
+            )
+
+        edge = self.edges[edge_idx]
+
+        if edge.road is not None:
+            raise BuildLocationError(f"Edge {edge_idx} already has a road on it.")
+
+        if edge not in vertex.adj_edges:
+            raise BuildLocationError(
+                f"Edge {edge_idx} is not adjacent to vertex {vertex_idx}."
+            )
+
+        self.__build_settlement(vertex, save_state=save_state)
+        self.__build_road(edge, save_state=save_state)
+
+        second_round, resource_amounts = False, defaultdict(int)
+        if self.round == 2:
+            second_round = True
+            for adj_tile in vertex.adj_tiles:
+                if adj_tile.tile_type != TileType.DESERT:
+                    resource_amounts[ResourceType(adj_tile.tile_type.value - 1)] += 1
+        self._transfer_resources(None, player, resource_amounts)
+
+        self._end_turn(save_state=save_state)
+
+        if save_state:
+            self._action_stack[-1].extend([second_round, resource_amounts])
 
     def _build_settlement(self, vertex_idx: VertexIdx) -> None:
         """
@@ -1034,6 +1121,44 @@ class Catan(_CatanBoard):
 
         self._transfer_resources(player_to_trade_with, player, resource_amounts_in)
         self._transfer_resources(player, player_to_trade_with, resource_amounts_out)
+
+    def _end_turn(self, *, save_state: bool = False) -> None:
+        """
+        Ends the current player's turn.
+        """
+
+        turns_that_round, prev_round = self.turns_this_round, self.round
+        self.turns_this_round += 1
+        if self.turns_this_round == len(self.players):
+            self.turns_this_round = 0
+            self.round += 1
+
+        unplayable_development_cards = []
+        for development_card in self.turn.development_cards:
+            if (
+                development_card.development_card_type
+                != DevelopmentCardType.VICTORY_POINT
+                and not development_card.playable
+            ):
+                unplayable_development_cards.append(development_card)
+                development_card.playable = True
+
+        self.players = self.players[1:] + self.players[:1]
+
+        flipped_order = False
+        if self.turns_this_round == 0 and self.round in (2, 3):
+            flipped_order = True
+            self.players.reverse()
+
+        if save_state:
+            self._action_stack[-1].extend(
+                [
+                    turns_that_round,
+                    prev_round,
+                    unplayable_development_cards,
+                    flipped_order,
+                ]
+            )
 
     def _get_longest_road_from_edge(
         self, edge: Edge, prev_edge: Edge | None, visited: set[Edge]
@@ -1356,63 +1481,24 @@ class Catan(_CatanBoard):
             player_from.resource_amounts[resource_type] -= resource_amount
             player_to.resource_amounts[resource_type] += resource_amount
 
-    def build_set_up_phase(self, vertex_idx: VertexIdx, edge_idx: EdgeIdx) -> None:
-        """
-        Builds a settlement and road in the set-up phase. Automatically ends the turn and distributes resources if necessary.
+    def _undo_end_turn(self, prev_states: list[Any]) -> None:
+        (
+            turns_that_round,
+            prev_round,
+            unplayable_development_cards,
+            flipped_order,
+        ) = prev_states
 
-        :param vertex_idx: The index of the vertex to build the settlement on.
-        :param edge_idx: The index of the edge to build the road on.
+        if flipped_order:
+            self.players.reverse()
 
-        :raises BuildLocationError:
-        :raises PhaseError:
-        :raises ValueError:
-        """
+        self.players = self.players[-1:] + self.players[:-1]
 
-        if vertex_idx not in VERTEX_IDXS:
-            raise ValueError(
-                f"Vertex index must be in {VERTEX_IDXS}, got {vertex_idx}."
-            )
-        if edge_idx not in EDGE_IDXS:
-            raise ValueError(f"Edge index must be in {EDGE_IDXS}, got {edge_idx}.")
+        for unplayable_development_card in unplayable_development_cards:
+            unplayable_development_card.playable = False
 
-        if not self.is_set_up:
-            raise PhaseError("Set-up phase is over.")
-
-        player = self.turn
-
-        vertex = self.vertices[vertex_idx]
-
-        if vertex.building is not None:
-            raise BuildLocationError(
-                f"Vertex {vertex_idx} already has a building on it."
-            )
-
-        if not all(adj_vertex.building is None for adj_vertex in vertex.adj_vertices):
-            raise BuildLocationError(
-                f"Cannot have a settlement or city adjacent to vertex {vertex_idx}."
-            )
-
-        edge = self.edges[edge_idx]
-
-        if edge.road is not None:
-            raise BuildLocationError(f"Edge {edge_idx} already has a road on it.")
-
-        if edge not in vertex.adj_edges:
-            raise BuildLocationError(
-                f"Edge {edge_idx} is not adjacent to vertex {vertex_idx}."
-            )
-
-        self.__build_settlement(vertex)
-        self.__build_road(edge)
-
-        if self.round == 2:
-            for adj_tile in vertex.adj_tiles:
-                if adj_tile.tile_type != TileType.DESERT:
-                    self._transfer_resources(
-                        None, player, {ResourceType(adj_tile.tile_type.value - 1): 1}
-                    )
-
-        self.end_turn()
+        self.round = prev_round
+        self.turns_this_round = turns_that_round
 
     def discard_half(
         self, color: Color, resource_amounts: dict[ResourceType, int]
@@ -1459,13 +1545,18 @@ class Catan(_CatanBoard):
         :param save_state: Whether to save the state of the game before doing the action.
         """
 
-        if self.is_set_up:
-            raise PhaseError("Set-up phase is not over.")
+        if self.is_set_up != (action is Action.BUILD_SET_UP):
+            raise PhaseError(f"Cannot do action {action} in current phase.")
 
         if save_state:
             self._action_stack.append([action, extra])
 
-        if action is Action.PLAY_DEVELOPMENT_CARD:
+        if action is Action.END_TURN:
+            self._end_turn(save_state=save_state)
+        elif action is Action.BUILD_SET_UP:
+            vertex_idx, edge_idx = extra
+            self._build_set_up(vertex_idx, edge_idx, save_state=save_state)
+        elif action is Action.PLAY_DEVELOPMENT_CARD:
             development_card_type, *extra = extra
             if development_card_type is DevelopmentCardType.KNIGHT:
                 new_robber_tile_idx, color_to_take_from = extra
@@ -1514,28 +1605,6 @@ class Catan(_CatanBoard):
             self._build_city(vertex_idx)
         elif action is Action.BUY_DEVELOPMENT_CARD:
             self._buy_development_card()
-
-    def end_turn(self) -> None:
-        """
-        Ends the current player's turn.
-        """
-
-        self.turns_this_round += 1
-        if self.turns_this_round == len(self.players):
-            self.turns_this_round = 0
-            self.round += 1
-
-        for development_card in self.turn.development_cards:
-            if (
-                development_card.development_card_type
-                != DevelopmentCardType.VICTORY_POINT
-            ):
-                development_card.playable = True
-
-        self.players = self.players[1:] + self.players[:1]
-
-        if self.turns_this_round == 0 and self.round in (2, 3):
-            self.players.reverse()
 
     def legal_discard_halfs(
         self, color: Color
@@ -1710,9 +1779,71 @@ class Catan(_CatanBoard):
 
         action, extra, *prev_states = self._action_stack.pop()
 
-        player = self.turn
+        if action is Action.END_TURN:
+            self._undo_end_turn(prev_states=prev_states)
+        elif action is Action.BUILD_SET_UP:
+            (
+                build_settlement_state,
+                build_road_state,
+                *prev_states,
+                second_round,
+                resource_amounts,
+            ) = prev_states
 
-        if action is Action.PLAY_DEVELOPMENT_CARD:
+            self._undo_end_turn(prev_states=prev_states)
+
+            player = self.turn
+
+            if second_round:
+                self._transfer_resources(player, None, resource_amounts)
+
+            (
+                edge,
+                added_connected_edge_idxs,
+                added_connected_vertex_idxs,
+                prev_longest_road,
+                _,
+                _,
+            ) = build_road_state
+
+            # if became_longest_road_player:
+            #     player.victory_points -= 2
+
+            #     self.longest_road_player = prev_longest_road_player
+
+            #     if prev_longest_road_player is not None:
+            #         prev_longest_road_player.victory_points += 2
+
+            player.longest_road = prev_longest_road
+
+            for edge_idx in added_connected_edge_idxs:
+                self._connected_edges[player.color].remove(edge_idx)
+            for vertex_idx in added_connected_vertex_idxs:
+                self._connected_vertices[player.color].remove(vertex_idx)
+
+            edge.road = None
+
+            player.roads_left += 1
+
+            (
+                vertex,
+                added_distance_rule_vertex_idxs,
+                added_harbor_type,
+            ) = build_settlement_state
+
+            if added_harbor_type is not None:
+                player.harbor_types.remove(added_harbor_type)
+
+            player.victory_points -= 1
+
+            for vertex_idx in added_distance_rule_vertex_idxs:
+                self._distance_rule_vertices.remove(vertex_idx)
+
+            vertex.building = None
+
+            player.settlements_left += 1
+        elif action is Action.PLAY_DEVELOPMENT_CARD:
+            player = self.turn
             development_card_type, *extra = extra
             if development_card_type is DevelopmentCardType.KNIGHT:
                 (
@@ -1751,6 +1882,8 @@ class Catan(_CatanBoard):
                 for build_road_state in build_road_states[::-1]:
                     (
                         edge,
+                        added_connected_edge_idxs,
+                        added_connected_vertex_idxs,
                         prev_longest_road,
                         became_longest_road_player,
                         prev_longest_road_player,
@@ -1765,6 +1898,11 @@ class Catan(_CatanBoard):
                             prev_longest_road_player.victory_points += 2
 
                     player.longest_road = prev_longest_road
+
+                    for edge_idx in added_connected_edge_idxs:
+                        self._connected_edges[player.color].remove(edge_idx)
+                    for vertex_idx in added_connected_vertex_idxs:
+                        self._connected_vertices[player.color].remove(vertex_idx)
 
                     edge.road = None
 
@@ -1790,6 +1928,8 @@ class Catan(_CatanBoard):
                 player.development_cards.append(
                     DevelopmentCard(DevelopmentCardType.MONOPOLY, True)
                 )
+        else:
+            raise NotImplementedError
 
     @property
     def is_game_over(self) -> bool:
@@ -1813,6 +1953,9 @@ class Catan(_CatanBoard):
 
     @property
     def legal_actions(self) -> Iterator[tuple[Action, ...]]:
+        if self.is_set_up:
+            return
+
         player = self.turn
 
         valid_edges = [
@@ -1947,6 +2090,23 @@ class Catan(_CatanBoard):
                 yield Action.TRADE_MARITIME, resource_type_out, resource_type_in
 
     @property
+    def legal_set_ups(self) -> Iterator[tuple[VertexIdx, EdgeIdx]]:
+        if not self.is_set_up:
+            return
+
+        for vertex_idx in VERTEX_IDXS:
+            vertex = self.vertices[vertex_idx]
+            if (
+                vertex.building is not None
+                or vertex_idx in self._distance_rule_vertices
+            ):
+                continue
+            for edge in vertex.adj_edges:
+                if edge.road is not None:
+                    continue
+                yield vertex_idx, edge.idx
+
+    @property
     def legal_robber_moves(self) -> Iterator[tuple[TileIdx, Color | None]]:
         player = self.turn
         for tile_idx in TILE_IDXS:
@@ -1964,20 +2124,6 @@ class Catan(_CatanBoard):
             else:
                 for color_to_take_from in colors_on_tile:
                     yield tile_idx, color_to_take_from
-
-    @property
-    def legal_set_up_phases(self) -> Iterator[tuple[EdgeIdx, VertexIdx]]:
-        for vertex_idx in VERTEX_IDXS:
-            vertex = self.vertices[vertex_idx]
-            if (
-                vertex.building is not None
-                or vertex_idx in self._distance_rule_vertices
-            ):
-                continue
-            for edge in vertex.adj_edges:
-                if edge.road is not None:
-                    continue
-                yield vertex_idx, edge.idx
 
     @property
     def turn(self) -> Player:
@@ -2021,8 +2167,8 @@ def main() -> None:
 
     while c.is_set_up:
         for player in c.players:
-            vertex_idx, edge_idx = choice(list((c.legal_set_up_phases)))  # option
-            c.build_set_up_phase(vertex_idx, edge_idx)
+            vertex_idx, edge_idx = choice(list((c.legal_set_ups)))  # option
+            c.do_action(Action.BUILD_SET_UP, [vertex_idx, edge_idx])
 
     while not c.is_game_over:
         roll = c.roll_dice()
@@ -2045,11 +2191,11 @@ def main() -> None:
 
         while True:
             action, *extra = choice(list((c.legal_actions)))  # option
-            if action is Action.END_TURN:
-                c.end_turn()
-                break
             c.do_action(action, extra)
-            if c.turn.victory_points >= WINNING_VICTORY_POINTS:
+            if (
+                action is Action.END_TURN
+                or c.turn.victory_points >= WINNING_VICTORY_POINTS
+            ):
                 break
 
     c.winner
