@@ -1401,7 +1401,9 @@ class Catan(_CatanBoard):
                 "Player must have a knight bought on a previous turn to play a knight."
             )
 
-        self._move_robber(new_robber_tile_idx, color_to_take_from, save_state=save_state)
+        self._move_robber(
+            new_robber_tile_idx, color_to_take_from, save_state=save_state
+        )
 
         player.development_cards.remove(
             DevelopmentCard(DevelopmentCardType.KNIGHT, True)
@@ -2318,12 +2320,15 @@ class Catan(_CatanBoard):
 def main() -> None:
     """Example usage"""
 
+    save_state = False
     c = Catan()
 
     while c.is_set_up:
         for player in c.players:
             vertex_idx, edge_idx = choice(list((c.legal_set_ups)))  # option
-            c.do_action(Action.BUILD_SET_UP, [vertex_idx, edge_idx])
+            c.do_action(
+                Action.BUILD_SET_UP, [vertex_idx, edge_idx], save_state=save_state
+            )
 
     while not c.is_game_over:
         roll = c.roll_dice()
@@ -2331,29 +2336,27 @@ def main() -> None:
             for player in c.players:
                 num_resources = sum(player.resource_amounts.values())
                 if num_resources > 7:
-                    amounts = choice(
+                    action, *extra = choice(
                         list((c.legal_discard_halfs(player.color)))
                     )  # option
-                    resource_amounts = dict(zip(ResourceType, amounts))
-                    c.discard_half(player.color, resource_amounts)
+                    c.do_action(action, extra, save_state=save_state)
 
-            new_robber_tile_idx, color_to_take_from = choice(
-                list((c.legal_robber_moves))
-            )  # option
-            c.move_robber(new_robber_tile_idx, color_to_take_from)
+            action, *extra = choice(list((c.legal_robber_moves)))  # option
+            c.do_action(action, extra, save_state=save_state)
         else:
-            c.produce_resources(roll)
+            c.do_action(Action.PRODUCE_RESOURCES, [roll], save_state=save_state)
 
         while True:
-            action, *extra = choice(list((c.legal_actions)))  # option
-            c.do_action(action, extra)
+            actions = list(c.legal_actions)
+            action, *extra = choice(actions)  # option
+            c.do_action(action, extra, save_state=save_state)
             if (
                 action is Action.END_TURN
                 or c.turn.victory_points >= WINNING_VICTORY_POINTS
             ):
                 break
 
-    c.winner
+    print(c.winner)
 
 
 if __name__ == "__main__":
