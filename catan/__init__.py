@@ -2330,32 +2330,39 @@ def main() -> None:
     save_state = False
     c = Catan()
 
+    # set up phase
     while c.is_set_up:
         for player in c.players:
-            vertex_idx, edge_idx = choice(list((c.legal_set_ups)))  # option
+            vertex_idx, edge_idx = choice(
+                list((c.legal_set_ups))
+            )  # randomly choose action
             c.do_action(
                 Action.BUILD_SET_UP, [vertex_idx, edge_idx], save_state=save_state
             )
 
+    # gameplay
     while not c.is_game_over:
         roll = c.roll_dice()
+        # effects from rolling
         if roll == 7:
             for player in c.players:
                 num_resources = sum(player.resource_amounts.values())
                 if num_resources > 7:
                     action, *extra = choice(
                         list((c.legal_discard_halfs(player.color)))
-                    )  # option
+                    )  # randomly choose action
                     c.do_action(action, extra, save_state=save_state)
 
-            action, *extra = choice(list((c.legal_robber_moves)))  # option
+            action, *extra = choice(
+                list((c.legal_robber_moves))
+            )  # randomly choose action
             c.do_action(action, extra, save_state=save_state)
         else:
             c.do_action(Action.PRODUCE_RESOURCES, [roll], save_state=save_state)
 
+        # the turn
         while True:
-            actions = list(c.legal_actions)
-            action, *extra = choice(actions)  # option
+            action, *extra = choice(list(c.legal_actions))  # randomly choose action
             c.do_action(action, extra, save_state=save_state)
             if (
                 action is Action.END_TURN
