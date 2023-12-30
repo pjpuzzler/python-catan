@@ -6,7 +6,7 @@ from enum import Enum
 from random import choice, choices, randint, shuffle
 from typing import Any, Iterator
 
-
+STARTING_RESOURCE_AMOUNT = 19
 WINNING_VICTORY_POINTS = 10
 
 
@@ -200,7 +200,7 @@ class Player:
     color: Color
 
     resource_amounts: dict[ResourceType, int] = field(
-        default_factory=lambda: {resource_type: 0 for resource_type in ResourceType}
+        default_factory=lambda: dict.fromkeys(ResourceType, 0)
     )
     development_cards: list[DevelopmentCard] = field(default_factory=list)
     settlements_left: int = 5
@@ -709,7 +709,7 @@ class Catan(_CatanBoard):
             shuffle(colors)
         self.players = [Player(color) for color in colors]
         self._color_to_player = {player.color: player for player in self.players}
-        self.resource_amounts = {resource_type: 19 for resource_type in ResourceType}
+        self.resource_amounts = dict.fromkeys(ResourceType, STARTING_RESOURCE_AMOUNT)
         self.development_cards = [
             DevelopmentCard(development_card_type)
             for development_card_type in BASE_DEVELOPMENT_CARD_TYPES
@@ -723,6 +723,7 @@ class Catan(_CatanBoard):
         self._connected_edges = {color: set() for color in colors}
         self._connected_vertices = {color: set() for color in colors}
         self._distance_rule_vertices = set()
+        self._building_vertices = {color: set() for color in colors}
 
         self._action_stack = []
 
@@ -794,6 +795,8 @@ class Catan(_CatanBoard):
         player.settlements_left -= 1
 
         vertex.building = Building(player.color)
+
+        self._building_vertices[player.color].add(vertex.idx)
 
         added_distance_rule_vertex_idxs = []
         for adj_vertex in vertex.adj_vertices:
@@ -1889,6 +1892,8 @@ class Catan(_CatanBoard):
             for vertex_idx in added_distance_rule_vertex_idxs:
                 self._distance_rule_vertices.remove(vertex_idx)
 
+            self._building_vertices[player.color].remove(vertex.idx)
+
             vertex.building = None
 
             player.settlements_left += 1
@@ -2057,6 +2062,8 @@ class Catan(_CatanBoard):
 
             for vertex_idx in added_distance_rule_vertex_idxs:
                 self._distance_rule_vertices.remove(vertex_idx)
+
+            self._building_vertices[player.color].remove(vertex.idx)
 
             vertex.building = None
 
