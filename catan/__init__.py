@@ -210,6 +210,7 @@ class Player:
     knights_played: int = 0
     longest_road: int = 0
     victory_points: int = 0
+    _development_card_victory_points: int = 0
 
     def __repr__(self) -> str:
         return f"Player({self.color.name})"
@@ -1064,6 +1065,7 @@ class Catan(_CatanBoard):
 
         if development_card.development_card_type is DevelopmentCardType.VICTORY_POINT:
             player.victory_points += 1
+            player._development_card_victory_points += 1
 
         if save_state:
             self._action_stack[-1].append(development_card)
@@ -2089,6 +2091,7 @@ class Catan(_CatanBoard):
                 is DevelopmentCardType.VICTORY_POINT
             ):
                 player.victory_points -= 1
+                player._development_card_victory_points -= 1
 
             player.development_cards.pop()
             self.development_cards.append(development_card)
