@@ -63,14 +63,15 @@ class Action(Enum):
         PRODUCE_RESOURCES,
         DISCARD_HALF,
         MOVE_ROBBER,
+        TRADE_DOMESTIC_RESPOND,
         PLAY_DEVELOPMENT_CARD,
-        TRADE_DOMESTIC,
+        TRADE_DOMESTIC_REQUEST,
         TRADE_MARITIME,
         BUILD_ROAD,
         BUILD_SETTLEMENT,
         BUILD_CITY,
         BUY_DEVELOPMENT_CARD,
-    ) = range(12)
+    ) = range(13)
 
 
 HarborIdx = int
@@ -134,6 +135,13 @@ DEVELOPMENT_CARD_COST = {
     ResourceType.WOOL: 1,
     ResourceType.ORE: 1,
 }
+
+
+def get_pips(t: Token) -> int:
+    """
+    Returns the number of pips on a token.
+    """
+    return 6 - abs(t - 7)
 
 
 class BuildLocationError(Exception):
@@ -379,9 +387,11 @@ class _CatanBoard:
         self.vertices = [
             Vertex(
                 vertex_idx,
-                harbor_type=harbor_types[self._VERTEX_IDX_TO_HARBOR_IDX[vertex_idx]]
-                if vertex_idx in self._VERTEX_IDX_TO_HARBOR_IDX
-                else None,
+                harbor_type=(
+                    harbor_types[self._VERTEX_IDX_TO_HARBOR_IDX[vertex_idx]]
+                    if vertex_idx in self._VERTEX_IDX_TO_HARBOR_IDX
+                    else None
+                ),
             )
             for vertex_idx in VERTEX_IDXS
         ]
@@ -647,6 +657,7 @@ class Catan(_CatanBoard):
         tokens: list[Token | None] | None = None,
         harbor_types: list[HarborType] | None = None,
         shuffle_order: bool = True,
+        check_validity: bool = True,
     ) -> None:
         """
         Creates an instance of a Catan game.
@@ -655,52 +666,59 @@ class Catan(_CatanBoard):
         :param tile_types: The (optional) types of tiles to use (must have all tiles).
         :param tokens: The (optional) tokens to use (muse have all tokens).
         :param harbor_types: The (optional) types of harbors to use (must have all harbors).
-        :param shuffle_order: Whether to randomize the order of play
+        :param shuffle_order: Whether to randomize the order of play.
+        :param check_validity: Whether to check the validity of inputs.
         """
 
-        if not (2 <= len(colors) <= 4):
-            raise ValueError(f"Number of colors must be 2-4, got {len(colors)}.")
-        if len(set(colors)) != len(colors):
-            raise ValueError("Colors must be unique.")
+        self.check_validity = check_validity
 
-        if (tile_types is None) != (tokens is None):
-            raise ValueError(
-                "Either both or neither of tile_types and tokens must be specified."
-            )
+        if self.check_validity:
+            if not (2 <= len(colors) <= 4):
+                raise ValueError(f"Number of colors must be 2-4, got {len(colors)}.")
+            if len(set(colors)) != len(colors):
+                raise ValueError("Colors must be unique.")
 
-        if tile_types is not None:
-            if not (
-                len(tile_types) == len(BASE_TILE_TYPES)
-                and all(
-                    tile_types.count(tile_type) == BASE_TILE_TYPES.count(tile_type)
-                    for tile_type in TileType
-                )
-            ):
-                raise ValueError(f"Tile types must have all tiles, got {tile_types}.")
-
-        if tokens is not None:
-            if not (
-                len(tokens) == len(BASE_TOKENS)
-                and all(
-                    tokens.count(token) == BASE_TOKENS.count(token) for token in TOKENS
-                )
-            ):
-                raise ValueError(f"Tokens must have all tokens, got {tokens}.")
-            if tokens.index(None) != tile_types.index(TileType.DESERT):
-                raise ValueError("Empty token must be on desert tile.")
-
-        if harbor_types is not None:
-            if not (
-                len(harbor_types) == len(BASE_HARBOR_TYPES)
-                and all(
-                    harbor_types.count(harbor_type)
-                    == BASE_HARBOR_TYPES.count(harbor_type)
-                    for harbor_type in HarborType
-                )
-            ):
+            if (tile_types is None) != (tokens is None):
                 raise ValueError(
-                    f"Harbor types must have all harbors, got {harbor_types}."
+                    "Either both or neither of tile_types and tokens must be specified."
                 )
+
+            if tile_types is not None:
+                if not (
+                    len(tile_types) == len(BASE_TILE_TYPES)
+                    and all(
+                        tile_types.count(tile_type) == BASE_TILE_TYPES.count(tile_type)
+                        for tile_type in TileType
+                    )
+                ):
+                    raise ValueError(
+                        f"Tile types must have all tiles, got {tile_types}."
+                    )
+
+            if tokens is not None:
+                if not (
+                    len(tokens) == len(BASE_TOKENS)
+                    and all(
+                        tokens.count(token) == BASE_TOKENS.count(token)
+                        for token in TOKENS
+                    )
+                ):
+                    raise ValueError(f"Tokens must have all tokens, got {tokens}.")
+                if tokens.index(None) != tile_types.index(TileType.DESERT):
+                    raise ValueError("Empty token must be on desert tile.")
+
+            if harbor_types is not None:
+                if not (
+                    len(harbor_types) == len(BASE_HARBOR_TYPES)
+                    and all(
+                        harbor_types.count(harbor_type)
+                        == BASE_HARBOR_TYPES.count(harbor_type)
+                        for harbor_type in HarborType
+                    )
+                ):
+                    raise ValueError(
+                        f"Harbor types must have all harbors, got {harbor_types}."
+                    )
 
         super().__init__(
             tile_types=tile_types, tokens=tokens, harbor_types=harbor_types
@@ -716,19 +734,20 @@ class Catan(_CatanBoard):
             for development_card_type in BASE_DEVELOPMENT_CARD_TYPES
         ]
         shuffle(self.development_cards)
+
         self.largest_army_player = None
         self.longest_road_player = None
         self.round = 1
         self.turns_this_round = 0
+        self.non_turn_action = None
+        self.trade_request = None
 
-        self._connected_edges = {color: set() for color in colors}
+        self._connected_edge_idxs = {color: set() for color in colors}
         self._connected_vertices = {color: set() for color in colors}
         self._distance_rule_vertices = set()
         self._building_vertices = {color: set() for color in colors}
 
-        self._action_stack = []
-
-    def __build_road(self, edge: Edge, *, save_state: bool = False) -> None:
+    def __build_road(self, edge: Edge) -> None:
         player = self.turn
 
         player.roads_left -= 1
@@ -737,9 +756,9 @@ class Catan(_CatanBoard):
 
         added_connected_edge_idxs, added_connected_vertex_idxs = [], []
         for adj_edge in edge.adj_edges:
-            if adj_edge.idx not in self._connected_edges[player.color]:
+            if adj_edge.idx not in self._connected_edge_idxs[player.color]:
                 added_connected_edge_idxs.append(adj_edge.idx)
-                self._connected_edges[player.color].add(adj_edge.idx)
+                self._connected_edge_idxs[player.color].add(adj_edge.idx)
         for adj_vertex in edge.adj_vertices:
             if adj_vertex.idx not in self._connected_vertices[player.color]:
                 added_connected_vertex_idxs.append(adj_vertex.idx)
@@ -757,20 +776,13 @@ class Catan(_CatanBoard):
             for adj_edge in cur_edge.adj_edges:
                 if adj_edge.road == Road(player.color) and adj_edge not in visited:
                     stack.append(adj_edge)
-        prev_longest_road = player.longest_road
         player.longest_road = max(player.longest_road, longest_road)
 
-        became_longest_road_player, prev_longest_road_player = False, None
         if player.longest_road >= 5 and (
             self.longest_road_player is None
             or self.longest_road_player is not player
             and player.longest_road > self.longest_road_player.longest_road
         ):
-            became_longest_road_player, prev_longest_road_player = (
-                True,
-                self.longest_road_player,
-            )
-
             if self.longest_road_player is not None:
                 self.longest_road_player.victory_points -= 2
 
@@ -778,19 +790,7 @@ class Catan(_CatanBoard):
 
             player.victory_points += 2
 
-        if save_state:
-            self._action_stack[-1].append(
-                [
-                    edge,
-                    added_connected_edge_idxs,
-                    added_connected_vertex_idxs,
-                    prev_longest_road,
-                    became_longest_road_player,
-                    prev_longest_road_player,
-                ]
-            )
-
-    def __build_settlement(self, vertex: Vertex, *, save_state: bool = False) -> None:
+    def __build_settlement(self, vertex: Vertex) -> None:
         player = self.turn
 
         player.settlements_left -= 1
@@ -807,24 +807,13 @@ class Catan(_CatanBoard):
 
         player.victory_points += 1
 
-        added_harbor_type = None
         if (
             vertex.harbor_type is not None
             and vertex.harbor_type not in player.harbor_types
         ):
-            added_harbor_type = vertex.harbor_type
             player.harbor_types.add(vertex.harbor_type)
 
-        if save_state:
-            self._action_stack[-1].append(
-                [
-                    vertex,
-                    added_distance_rule_vertex_idxs,
-                    added_harbor_type,
-                ]
-            )
-
-    def _build_city(self, vertex_idx: VertexIdx, *, save_state: bool = False) -> None:
+    def _build_city(self, vertex_idx: VertexIdx) -> None:
         """
         Builds a city.
 
@@ -836,30 +825,34 @@ class Catan(_CatanBoard):
         :raises ValueError:
         """
 
-        if vertex_idx not in VERTEX_IDXS:
-            raise ValueError(
-                f"Vertex index must be in {VERTEX_IDXS}, got {vertex_idx}."
-            )
+        if self.check_validity:
+            if vertex_idx not in VERTEX_IDXS:
+                raise ValueError(
+                    f"Vertex index must be in {VERTEX_IDXS}, got {vertex_idx}."
+                )
 
         player = self.turn
 
-        if player.cities_left == 0:
-            raise NotEnoughPiecesError("Player has no cities left.")
+        if self.check_validity:
+            if player.cities_left == 0:
+                raise NotEnoughPiecesError("Player has no cities left.")
 
         vertex = self.vertices[vertex_idx]
 
-        if vertex.building != Building(player.color):
-            raise BuildLocationError(
-                f"Player does not have a settlement on vertex {vertex_idx}."
-            )
+        if self.check_validity:
+            if vertex.building != Building(player.color):
+                raise BuildLocationError(
+                    f"Player does not have a settlement on vertex {vertex_idx}."
+                )
 
-        if not all(
-            player.resource_amounts[resource_type] >= abs(cost)
-            for resource_type, cost in CITY_COST.items()
-        ):
-            raise InvalidResourcesError(
-                f"Player must have at least 2 grain and 3 ore to upgrade settlement, has {player.resource_amounts[ResourceType.GRAIN]}g and {player.resource_amounts[ResourceType.ORE]}o."
-            )
+        if self.check_validity:
+            if not all(
+                player.resource_amounts[resource_type] >= abs(cost)
+                for resource_type, cost in CITY_COST.items()
+            ):
+                raise InvalidResourcesError(
+                    f"Player must have at least 2 grain and 3 ore to upgrade settlement, has {player.resource_amounts[ResourceType.GRAIN]}g and {player.resource_amounts[ResourceType.ORE]}o."
+                )
 
         self._transfer_resources(player, None, CITY_COST)
 
@@ -868,10 +861,7 @@ class Catan(_CatanBoard):
         vertex.building.building_type = BuildingType.CITY
         player.victory_points += 1
 
-        if save_state:
-            self._action_stack[-1].append(vertex)
-
-    def _build_road(self, edge_idx: EdgeIdx, *, save_state: bool = False) -> None:
+    def _build_road(self, edge_idx: EdgeIdx) -> None:
         """
         Builds a road.
 
@@ -883,46 +873,40 @@ class Catan(_CatanBoard):
         :raises ValueError:
         """
 
-        if edge_idx not in EDGE_IDXS:
-            raise ValueError(f"Edge index must be in {EDGE_IDXS}, got {edge_idx}.")
+        if self.check_validity:
+            if edge_idx not in EDGE_IDXS:
+                raise ValueError(f"Edge index must be in {EDGE_IDXS}, got {edge_idx}.")
 
         player = self.turn
 
-        if player.roads_left == 0:
-            raise NotEnoughPiecesError("Player has no roads left.")
+        if self.check_validity:
+            if player.roads_left == 0:
+                raise NotEnoughPiecesError("Player has no roads left.")
+
+            if not edge_idx in self._connected_edge_idxs[player.color]:
+                raise BuildLocationError(
+                    f"Player must have a road adjacent to edge {edge_idx}."
+                )
 
         edge = self.edges[edge_idx]
 
-        if edge.road is not None:
-            raise BuildLocationError(f"Edge {edge_idx} already has a road on it.")
+        if self.check_validity:
+            if edge.road is not None:
+                raise BuildLocationError(f"Edge {edge_idx} already has a road on it.")
 
-        if not (
-            any(adj_edge.road == Road(player.color) for adj_edge in edge.adj_edges)
-            or any(
-                adj_vertex.building.color is player.color
-                for adj_vertex in edge.adj_vertices
-                if adj_vertex.building is not None
-            )
-        ):
-            raise BuildLocationError(
-                f"Player must have a settlement or road adjacent to edge {edge_idx}."
-            )
-
-        if not all(
-            player.resource_amounts[resource_type] >= abs(cost)
-            for resource_type, cost in ROAD_COST.items()
-        ):
-            raise InvalidResourcesError(
-                f"Player must have at least 1 lumber and 1 brick to build a road, has {player.resource_amounts[ResourceType.LUMBER]}l and {player.resource_amounts[ResourceType.BRICK]}b."
-            )
+            if not all(
+                player.resource_amounts[resource_type] >= abs(cost)
+                for resource_type, cost in ROAD_COST.items()
+            ):
+                raise InvalidResourcesError(
+                    f"Player must have at least 1 lumber and 1 brick to build a road, has {player.resource_amounts[ResourceType.LUMBER]}l and {player.resource_amounts[ResourceType.BRICK]}b."
+                )
 
         self._transfer_resources(player, None, ROAD_COST)
 
-        self.__build_road(edge, save_state=save_state)
+        self.__build_road(edge)
 
-    def _build_set_up(
-        self, vertex_idx: VertexIdx, edge_idx: EdgeIdx, *, save_state: bool = False
-    ) -> None:
+    def _build_set_up(self, vertex_idx: VertexIdx, edge_idx: EdgeIdx) -> None:
         """
         Builds a settlement and road in the set-up phase. Automatically ends the turn and distributes resources if necessary.
 
@@ -934,59 +918,58 @@ class Catan(_CatanBoard):
         :raises ValueError:
         """
 
-        if vertex_idx not in VERTEX_IDXS:
-            raise ValueError(
-                f"Vertex index must be in {VERTEX_IDXS}, got {vertex_idx}."
-            )
-        if edge_idx not in EDGE_IDXS:
-            raise ValueError(f"Edge index must be in {EDGE_IDXS}, got {edge_idx}.")
+        if self.check_validity:
+            if vertex_idx not in VERTEX_IDXS:
+                raise ValueError(
+                    f"Vertex index must be in {VERTEX_IDXS}, got {vertex_idx}."
+                )
+            if edge_idx not in EDGE_IDXS:
+                raise ValueError(f"Edge index must be in {EDGE_IDXS}, got {edge_idx}.")
 
-        if not self.is_set_up:
-            raise PhaseError("Set-up phase is over.")
+            if not self.is_set_up:
+                raise PhaseError("Set-up phase is over.")
 
         player = self.turn
 
         vertex = self.vertices[vertex_idx]
 
-        if vertex.building is not None:
-            raise BuildLocationError(
-                f"Vertex {vertex_idx} already has a building on it."
-            )
+        if self.check_validity:
+            if vertex.building is not None:
+                raise BuildLocationError(
+                    f"Vertex {vertex_idx} already has a building on it."
+                )
 
-        if not all(adj_vertex.building is None for adj_vertex in vertex.adj_vertices):
-            raise BuildLocationError(
-                f"Cannot have a settlement or city adjacent to vertex {vertex_idx}."
-            )
+            if not all(
+                adj_vertex.building is None for adj_vertex in vertex.adj_vertices
+            ):
+                raise BuildLocationError(
+                    f"Cannot have a settlement or city adjacent to vertex {vertex_idx}."
+                )
 
         edge = self.edges[edge_idx]
 
-        if edge.road is not None:
-            raise BuildLocationError(f"Edge {edge_idx} already has a road on it.")
+        if self.check_validity:
+            if edge.road is not None:
+                raise BuildLocationError(f"Edge {edge_idx} already has a road on it.")
 
-        if edge not in vertex.adj_edges:
-            raise BuildLocationError(
-                f"Edge {edge_idx} is not adjacent to vertex {vertex_idx}."
-            )
+            if edge not in vertex.adj_edges:
+                raise BuildLocationError(
+                    f"Edge {edge_idx} is not adjacent to vertex {vertex_idx}."
+                )
 
-        self.__build_settlement(vertex, save_state=save_state)
-        self.__build_road(edge, save_state=save_state)
+        self.__build_settlement(vertex)
+        self.__build_road(edge)
 
-        second_round, resource_amounts = False, defaultdict(int)
+        resource_amounts = defaultdict(int)
         if self.round == 2:
-            second_round = True
             for adj_tile in vertex.adj_tiles:
                 if adj_tile.tile_type != TileType.DESERT:
                     resource_amounts[ResourceType(adj_tile.tile_type.value - 1)] += 1
         self._transfer_resources(None, player, resource_amounts)
 
-        self._end_turn(save_state=save_state)
+        self._end_turn()
 
-        if save_state:
-            self._action_stack[-1].extend([second_round, resource_amounts])
-
-    def _build_settlement(
-        self, vertex_idx: VertexIdx, *, save_state: bool = False
-    ) -> None:
+    def _build_settlement(self, vertex_idx: VertexIdx) -> None:
         """
         Builds a settlement.
 
@@ -998,46 +981,49 @@ class Catan(_CatanBoard):
         :raises ValueError:
         """
 
-        if vertex_idx not in VERTEX_IDXS:
-            raise ValueError(
-                f"Vertex index must be in {VERTEX_IDXS}, got {vertex_idx}."
-            )
+        if self.check_validity:
+            if vertex_idx not in VERTEX_IDXS:
+                raise ValueError(
+                    f"Vertex index must be in {VERTEX_IDXS}, got {vertex_idx}."
+                )
 
         player = self.turn
 
-        if player.settlements_left == 0:
-            raise NotEnoughPiecesError("Player has no settlements left.")
+        if self.check_validity:
+            if player.settlements_left == 0:
+                raise NotEnoughPiecesError("Player has no settlements left.")
 
         vertex = self.vertices[vertex_idx]
 
-        if vertex.building is not None:
-            raise BuildLocationError(
-                f"Vertex {vertex_idx} already has a building on it."
-            )
+        if self.check_validity:
+            if vertex.building is not None:
+                raise BuildLocationError(
+                    f"Vertex {vertex_idx} already has a building on it."
+                )
 
-        if vertex_idx not in self._connected_vertices[player.color]:
-            raise BuildLocationError(
-                f"Player must have a road adjacent to vertex {vertex_idx}."
-            )
+            if vertex_idx not in self._connected_vertices[player.color]:
+                raise BuildLocationError(
+                    f"Player must have a road adjacent to vertex {vertex_idx}."
+                )
 
-        if vertex_idx in self._distance_rule_vertices:
-            raise BuildLocationError(
-                f"Cannot have a settlement or city adjacent to vertex {vertex_idx}."
-            )
+            if vertex_idx in self._distance_rule_vertices:
+                raise BuildLocationError(
+                    f"Cannot have a settlement or city adjacent to vertex {vertex_idx}."
+                )
 
-        if not all(
-            player.resource_amounts[resource_type] >= abs(cost)
-            for resource_type, cost in SETTLEMENT_COST.items()
-        ):
-            raise InvalidResourcesError(
-                f"Player must have at least 1 lumber, 1 brick, 1 grain and 1 wool to build a settlement, has {player.resource_amounts[ResourceType.LUMBER]}l, {player.resource_amounts[ResourceType.BRICK]}b, {player.resource_amounts[ResourceType.GRAIN]}g and {player.resource_amounts[ResourceType.WOOL]}w."
-            )
+            if not all(
+                player.resource_amounts[resource_type] >= abs(cost)
+                for resource_type, cost in SETTLEMENT_COST.items()
+            ):
+                raise InvalidResourcesError(
+                    f"Player must have at least 1 lumber, 1 brick, 1 grain and 1 wool to build a settlement, has {player.resource_amounts[ResourceType.LUMBER]}l, {player.resource_amounts[ResourceType.BRICK]}b, {player.resource_amounts[ResourceType.GRAIN]}g and {player.resource_amounts[ResourceType.WOOL]}w."
+                )
 
         self._transfer_resources(player, None, SETTLEMENT_COST)
 
-        self.__build_settlement(vertex, save_state=save_state)
+        self.__build_settlement(vertex)
 
-    def _buy_development_card(self, *, save_state: bool = False) -> None:
+    def _buy_development_card(self) -> None:
         """
         Buys a development card.
 
@@ -1045,18 +1031,20 @@ class Catan(_CatanBoard):
         :raises NotEnoughGameCardsError:
         """
 
-        if not self.development_cards:
-            raise NotEnoughGameCardsError("No development cards left.")
+        if self.check_validity:
+            if not self.development_cards:
+                raise NotEnoughGameCardsError("No development cards left.")
 
         player = self.turn
 
-        if not all(
-            player.resource_amounts[resource_type] >= abs(cost)
-            for resource_type, cost in DEVELOPMENT_CARD_COST.items()
-        ):
-            raise InvalidResourcesError(
-                f"Player must have at least 1 grain, 1 wool, and 1 ore to buy a development card, has {player.resource_amounts[ResourceType.GRAIN]}g, {player.resource_amounts[ResourceType.WOOL]}w and {player.resource_amounts[ResourceType.ORE]}o."
-            )
+        if self.check_validity:
+            if not all(
+                player.resource_amounts[resource_type] >= abs(cost)
+                for resource_type, cost in DEVELOPMENT_CARD_COST.items()
+            ):
+                raise InvalidResourcesError(
+                    f"Player must have at least 1 grain, 1 wool, and 1 ore to buy a development card, has {player.resource_amounts[ResourceType.GRAIN]}g, {player.resource_amounts[ResourceType.WOOL]}w and {player.resource_amounts[ResourceType.ORE]}o."
+                )
 
         self._transfer_resources(player, None, DEVELOPMENT_CARD_COST)
 
@@ -1067,125 +1055,50 @@ class Catan(_CatanBoard):
             player.victory_points += 1
             player._development_card_victory_points += 1
 
-        if save_state:
-            self._action_stack[-1].append(development_card)
-
-    def _discard_half(
-        self,
-        color: Color,
-        amounts: list[int, int, int, int, int],
-        *,
-        save_state: bool = False,
-    ) -> None:
+    def _discard_half(self, amounts: list[int, int, int, int, int]) -> None:
         """
         Discards half of a player's resources.
 
-        :param color: The color of the player to discard resources for.
         :param resource_amounts: The amounts of resources to discard.
 
         :raises ValueError
         """
 
-        if color not in self._color_to_player:
-            raise ValueError(f"Color must be in {self._color_to_player}, got {color}.")
+        player = self.turn
 
-        player = self._color_to_player[color]
-
-        num_resources_discarded = sum(amounts)
-        num_player_resources = sum(player.resource_amounts.values())
-        if num_resources_discarded != num_player_resources // 2:
-            raise ValueError(
-                f"Player must discard half of their total resources (rounded down), has {num_player_resources}, discarded {num_resources_discarded}."
-            )
+        if self.check_validity:
+            num_resources_discarded = sum(amounts)
+            num_player_resources = sum(player.resource_amounts.values())
+            if num_resources_discarded != num_player_resources // 2:
+                raise ValueError(
+                    f"Player must discard half of their total resources (rounded down), has {num_player_resources}, discarded {num_resources_discarded}."
+                )
 
         resource_amounts = dict(zip(ResourceType, amounts))
 
-        if not all(
-            player.resource_amounts[resource_type] >= resource_amount
-            for resource_type, resource_amount in resource_amounts.items()
-        ):
-            raise ValueError(
-                f"Player does not have enough resources to discard {resource_amounts}."
-            )
+        if self.check_validity:
+            if not all(
+                player.resource_amounts[resource_type] >= resource_amount
+                for resource_type, resource_amount in resource_amounts.items()
+            ):
+                raise ValueError(
+                    f"Player does not have enough resources to discard {resource_amounts}."
+                )
 
         self._transfer_resources(player, None, resource_amounts)
 
-        if save_state:
-            self._action_stack[-1].extend([player, resource_amounts])
+        self._end_turn()
 
-    def _domestic_trade(
-        self,
-        resource_amounts_out: dict[ResourceType, int],
-        resource_amounts_in: dict[ResourceType, int],
-        color_to_trade_with: Color,
-    ) -> None:
-        """
-        Trades resources between two players.
-
-        :param resource_amounts_out: The amounts of resources the player is trading away.
-        :param resource_amounts_in: The amounts of resources the player is receiving.
-        :param color_to_trade_with: The color of the player to trade with.
-
-        :raises InvalidResourcesError:
-        :raises ValueError:
-        """
-
-        if color_to_trade_with not in self._color_to_player:
-            raise ValueError(f"Player {color_to_trade_with} does not exist.")
-
-        player = self.turn
-
-        if color_to_trade_with is player.color:
-            raise ValueError(f"Player cannot trade with themselves.")
-
-        if len(resource_amounts_out) <= 0:
-            raise ValueError(f"Player 1 must trade at least 1 resource.")
-        if len(resource_amounts_in) <= 0:
-            raise ValueError(f"Player 2 must trade at least 1 resource.")
-
-        if not all(amount > 0 for amount in resource_amounts_out.values()):
-            raise ValueError(
-                f"Player 1's resource amounts must all be positive, got {resource_amounts_out}."
-            )
-        if not all(amount > 0 for amount in resource_amounts_in.values()):
-            raise ValueError(
-                f"Player 2's resource amounts must all be positive, got {resource_amounts_in}."
-            )
-
-        if any(
-            resource_type in resource_amounts_in
-            for resource_type in resource_amounts_out
-        ):
-            raise ValueError(
-                f"Player 1 cannot trade a resource they are receiving, got {resource_amounts_out} and {resource_amounts_in}."
-            )
-
-        player_to_trade_with = self._color_to_player[color_to_trade_with]
-
-        if not all(
-            player.resource_amounts[resource_type] >= resource_amount
-            for resource_type, resource_amount in resource_amounts_out.items()
-        ):
-            raise InvalidResourcesError(
-                f"Player does not have enough resources to trade away, got {resource_amounts_out}."
-            )
-        if not all(
-            player_to_trade_with.resource_amounts[resource_type] >= resource_amount
-            for resource_type, resource_amount in resource_amounts_in.items()
-        ):
-            raise InvalidResourcesError(
-                f"Player to trade with does not have enough resources to trade, got {resource_amounts_in}."
-            )
-
-        self._transfer_resources(player_to_trade_with, player, resource_amounts_in)
-        self._transfer_resources(player, player_to_trade_with, resource_amounts_out)
-
-    def _end_turn(self, *, save_state: bool = False) -> None:
+    def _end_turn(self) -> None:
         """
         Ends the current player's turn.
         """
 
-        turns_that_round, prev_round = self.turns_this_round, self.round
+        self.players = self.players[1:] + self.players[:1]
+
+        if self.non_turn_action is not None:
+            return
+
         self.turns_this_round += 1
         if self.turns_this_round == len(self.players):
             self.turns_this_round = 0
@@ -1201,22 +1114,8 @@ class Catan(_CatanBoard):
                 unplayable_development_cards.append(development_card)
                 development_card.playable = True
 
-        self.players = self.players[1:] + self.players[:1]
-
-        flipped_order = False
         if self.turns_this_round == 0 and self.round in (2, 3):
-            flipped_order = True
             self.players.reverse()
-
-        if save_state:
-            self._action_stack[-1].extend(
-                [
-                    turns_that_round,
-                    prev_round,
-                    unplayable_development_cards,
-                    flipped_order,
-                ]
-            )
 
     def _get_longest_road_from_edge(
         self, edge: Edge, prev_edge: Edge | None, visited: set[Edge]
@@ -1241,63 +1140,18 @@ class Catan(_CatanBoard):
             default=0,
         )
 
-    def _maritime_trade(
-        self,
-        resource_type_out: ResourceType,
-        resource_type_in: ResourceType,
-        *,
-        save_state: bool = False,
-    ) -> None:
-        """
-        Trades resources for a maritime trade.
-
-        :param resource_type_out: The type of resource the player is trading out.
-        :param resource_type_in: The type of resource the player is trading in.
-
-        :raises InvalidResourcesError:
-        :raises NotEnoughGameCardsError:
-        :raises ValueError
-        """
-
-        if resource_type_out is resource_type_in:
-            raise ValueError(f"Cannot trade {resource_type_out} for itself.")
-
-        if self.resource_amounts[resource_type_in] == 0:
-            raise NotEnoughGameCardsError(
-                f"Not enough {resource_type_in} cards in the game."
+    def _legal_build_settlement_idx(self, vertex_idx: VertexIdx) -> bool:
+        return (
+            self.vertices[vertex_idx].building is None
+            and vertex_idx not in self._distance_rule_vertices
+            and (
+                self.is_set_up
+                or vertex_idx in self._connected_vertices[self.turn.color]
             )
-
-        player = self.turn
-
-        resource_amount_out = (
-            2
-            if HarborType(resource_type_out.value) in player.harbor_types
-            else 3
-            if HarborType.GENERIC in player.harbor_types
-            else 4
         )
 
-        player_resource_amount = player.resource_amounts[resource_type_out]
-        if player_resource_amount < resource_amount_out:
-            raise InvalidResourcesError(
-                f"Player does not have enough resources to trade {resource_amount_out}, has {player_resource_amount}."
-            )
-
-        resource_amounts_out, resource_amounts_in = {
-            resource_type_out: resource_amount_out
-        }, {resource_type_in: 1}
-        self._transfer_resources(player, None, resource_amounts_out)
-        self._transfer_resources(None, player, resource_amounts_in)
-
-        if save_state:
-            self._action_stack[-1].extend([resource_amounts_out, resource_amounts_in])
-
     def _move_robber(
-        self,
-        new_robber_tile_idx: TileIdx,
-        color_to_take_from: Color | None = None,
-        *,
-        save_state: bool = False,
+        self, new_robber_tile_idx: TileIdx, color_to_take_from: Color | None = None
     ) -> None:
         """
         Moves the robber.
@@ -1309,24 +1163,27 @@ class Catan(_CatanBoard):
         :raises ValueError:
         """
 
-        if new_robber_tile_idx not in TILE_IDXS:
-            raise ValueError(f"Invalid tile index {new_robber_tile_idx}.")
+        if self.check_validity:
+            if new_robber_tile_idx not in TILE_IDXS:
+                raise ValueError(f"Invalid tile index {new_robber_tile_idx}.")
 
-        if (
-            color_to_take_from is not None
-            and color_to_take_from not in self._color_to_player
-        ):
-            raise ValueError(f"Invalid color {color_to_take_from}.")
+            if (
+                color_to_take_from is not None
+                and color_to_take_from not in self._color_to_player
+            ):
+                raise ValueError(f"Invalid color {color_to_take_from}.")
 
         player = self.turn
 
-        if color_to_take_from is not None and color_to_take_from is player.color:
-            raise ValueError(f"Player cannot take from themselves.")
+        if self.check_validity:
+            if color_to_take_from is not None and color_to_take_from is player.color:
+                raise ValueError(f"Player cannot take from themselves.")
 
         new_robber_tile = self.tiles[new_robber_tile_idx]
 
-        if new_robber_tile is self.robber_tile:
-            raise RobberError(f"Robber is already on tile {new_robber_tile_idx}.")
+        if self.check_validity:
+            if new_robber_tile is self.robber_tile:
+                raise RobberError(f"Robber is already on tile {new_robber_tile_idx}.")
 
         colors_on_tile = {
             adj_vertex.building.color
@@ -1337,10 +1194,11 @@ class Catan(_CatanBoard):
 
         player_to_take_from, resource_type_take = None, None
         if color_to_take_from is not None:
-            if color_to_take_from not in colors_on_tile:
-                raise ValueError(
-                    f"Player {color_to_take_from.name} does not have any buildilngs on the robber tile."
-                )
+            if self.check_validity:
+                if color_to_take_from not in colors_on_tile:
+                    raise ValueError(
+                        f"Player {color_to_take_from.name} does not have any buildilngs on the robber tile."
+                    )
 
             player_to_take_from = self._color_to_player[color_to_take_from]
 
@@ -1358,32 +1216,26 @@ class Catan(_CatanBoard):
                 player_to_take_from, resource_type_take = None, None
 
         else:
-            if any(
-                any(
-                    amount > 0
-                    for amount in self._color_to_player[color].resource_amounts.values()
-                )
-                for color in colors_on_tile
-            ):
-                raise ValueError(
-                    "Must take cards from a player on the robber tile if possible."
-                )
-
-        if save_state:
-            self._action_stack[-1].extend(
-                [player_to_take_from, resource_type_take, self.robber_tile]
-            )
+            if self.check_validity:
+                if any(
+                    any(
+                        amount > 0
+                        for amount in self._color_to_player[
+                            color
+                        ].resource_amounts.values()
+                    )
+                    for color in colors_on_tile
+                ):
+                    raise ValueError(
+                        "Must take cards from a player on the robber tile if possible."
+                    )
 
         self.robber_tile.has_robber = False
         new_robber_tile.has_robber = True
         self.robber_tile = new_robber_tile
 
     def _play_knight(
-        self,
-        new_robber_tile_idx: TileIdx,
-        color_to_take_from: Color | None = None,
-        *,
-        save_state: bool = False,
+        self, new_robber_tile_idx: TileIdx, color_to_take_from: Color | None = None
     ) -> None:
         """
         Plays a knight development card.
@@ -1398,17 +1250,16 @@ class Catan(_CatanBoard):
 
         player = self.turn
 
-        if (
-            DevelopmentCard(DevelopmentCardType.KNIGHT, True)
-            not in player.development_cards
-        ):
-            raise DevelopmentCardError(
-                "Player must have a knight bought on a previous turn to play a knight."
-            )
+        if self.check_validity:
+            if (
+                DevelopmentCard(DevelopmentCardType.KNIGHT, True)
+                not in player.development_cards
+            ):
+                raise DevelopmentCardError(
+                    "Player must have a knight bought on a previous turn to play a knight."
+                )
 
-        self._move_robber(
-            new_robber_tile_idx, color_to_take_from, save_state=save_state
-        )
+        self._move_robber(new_robber_tile_idx, color_to_take_from)
 
         player.development_cards.remove(
             DevelopmentCard(DevelopmentCardType.KNIGHT, True)
@@ -1416,16 +1267,11 @@ class Catan(_CatanBoard):
 
         player.knights_played += 1
 
-        became_largest_army_player, prev_largest_army_player = False, None
         if player.knights_played >= 3 and (
             self.largest_army_player is None
             or self.largest_army_player is not player
             and player.knights_played > self.largest_army_player.knights_played
         ):
-            became_largest_army_player, prev_largest_army_player = (
-                True,
-                self.largest_army_player,
-            )
             if self.largest_army_player is not None:
                 self.largest_army_player.victory_points -= 2
 
@@ -1433,14 +1279,7 @@ class Catan(_CatanBoard):
 
             player.victory_points += 2
 
-        if save_state:
-            self._action_stack[-1].extend(
-                [became_largest_army_player, prev_largest_army_player]
-            )
-
-    def _play_monopoly(
-        self, resource_type: ResourceType, *, save_state: bool = False
-    ) -> None:
+    def _play_monopoly(self, resource_type: ResourceType) -> None:
         """
         Plays a monopoly development card.
 
@@ -1451,13 +1290,14 @@ class Catan(_CatanBoard):
 
         player = self.turn
 
-        if (
-            DevelopmentCard(DevelopmentCardType.MONOPOLY, True)
-            not in player.development_cards
-        ):
-            raise DevelopmentCardError(
-                "Player must have a monopoly bought on a previous turn to play a monopoly."
-            )
+        if self.check_validity:
+            if (
+                DevelopmentCard(DevelopmentCardType.MONOPOLY, True)
+                not in player.development_cards
+            ):
+                raise DevelopmentCardError(
+                    "Player must have a monopoly bought on a previous turn to play a monopoly."
+                )
 
         player.development_cards.remove(
             DevelopmentCard(DevelopmentCardType.MONOPOLY, True)
@@ -1476,15 +1316,8 @@ class Catan(_CatanBoard):
                 )
                 transfers.append((other_player, resource_amounts))
 
-        if save_state:
-            self._action_stack[-1].append(transfers)
-
     def _play_road_building(
-        self,
-        edge_idx_1: EdgeIdx,
-        edge_idx_2: EdgeIdx | None = None,
-        *,
-        save_state: bool = False,
+        self, edge_idx_1: EdgeIdx, edge_idx_2: EdgeIdx | None = None
     ) -> None:
         """
         Plays a road building development card.
@@ -1498,79 +1331,90 @@ class Catan(_CatanBoard):
         :raises ValueError:
         """
 
-        if edge_idx_1 not in EDGE_IDXS:
-            raise ValueError(f"Invalid edge index {edge_idx_1}.")
-        if edge_idx_2 is not None and edge_idx_2 not in EDGE_IDXS:
-            raise ValueError(f"Invalid edge index {edge_idx_2}.")
+        if self.check_validity:
+            if edge_idx_1 not in EDGE_IDXS:
+                raise ValueError(f"Invalid edge index {edge_idx_1}.")
+            if edge_idx_2 is not None and edge_idx_2 not in EDGE_IDXS:
+                raise ValueError(f"Invalid edge index {edge_idx_2}.")
 
         player = self.turn
 
-        if (
-            DevelopmentCard(DevelopmentCardType.ROAD_BUILDING, True)
-            not in player.development_cards
-        ):
-            raise DevelopmentCardError(
-                "Player must have a road building bought on a previous turn to play a road building."
-            )
+        if self.check_validity:
+            if (
+                DevelopmentCard(DevelopmentCardType.ROAD_BUILDING, True)
+                not in player.development_cards
+            ):
+                raise DevelopmentCardError(
+                    "Player must have a road building bought on a previous turn to play a road building."
+                )
 
-        if player.roads_left == 0:
-            raise NotEnoughPiecesError("Player does not have any roads left.")
-        if (edge_idx_2 is None) != (player.roads_left == 1):
-            raise ValueError("Must use all roads.")
+            if player.roads_left == 0:
+                raise NotEnoughPiecesError("Player does not have any roads left.")
+            if (edge_idx_2 is None) != (
+                player.roads_left == 1
+                or sum(
+                    self.edges[edge_idx].road is None
+                    for edge_idx in self._connected_edge_idxs[player.color]
+                )
+                == 1
+            ):
+                raise ValueError("Must use all roads.")
 
         edge_1 = self.edges[edge_idx_1]
 
-        if edge_1.road is not None:
-            raise BuildLocationError("Edge 1 must be unoccupied to build a road.")
-
-        if not (
-            any(adj_edge.road == Road(player.color) for adj_edge in edge_1.adj_edges)
-            or any(
-                adj_vertex.building is not None
-                and adj_vertex.building.color is player.color
-                for adj_vertex in edge_1.adj_vertices
-            )
-        ):
-            raise BuildLocationError(
-                "Edge 1 must have an adjacent road, settlement, or city of the same color to build a road."
-            )
-
-        if edge_idx_2 is not None:
-            edge_2 = self.edges[edge_idx_2]
-
-            if edge_2.road is not None:
-                raise BuildLocationError("Edge 2 must be unoccupied to build a road.")
+        if self.check_validity:
+            if edge_1.road is not None:
+                raise BuildLocationError("Edge 1 must be unoccupied to build a road.")
 
             if not (
                 any(
-                    adj_edge.road == Road(player.color) or adj_edge is edge_1
-                    for adj_edge in edge_2.adj_edges
+                    adj_edge.road == Road(player.color) for adj_edge in edge_1.adj_edges
                 )
                 or any(
                     adj_vertex.building is not None
                     and adj_vertex.building.color is player.color
-                    for adj_vertex in edge_2.adj_vertices
+                    for adj_vertex in edge_1.adj_vertices
                 )
             ):
                 raise BuildLocationError(
-                    "Edge 2 must have an adjacent road, settlement, or city of the same color to build a road."
+                    "Edge 1 must have an adjacent road, settlement, or city of the same color to build a road."
                 )
+
+        if edge_idx_2 is not None:
+            edge_2 = self.edges[edge_idx_2]
+
+            if self.check_validity:
+                if edge_2.road is not None:
+                    raise BuildLocationError(
+                        "Edge 2 must be unoccupied to build a road."
+                    )
+
+                if not (
+                    any(
+                        adj_edge.road == Road(player.color) or adj_edge is edge_1
+                        for adj_edge in edge_2.adj_edges
+                    )
+                    or any(
+                        adj_vertex.building is not None
+                        and adj_vertex.building.color is player.color
+                        for adj_vertex in edge_2.adj_vertices
+                    )
+                ):
+                    raise BuildLocationError(
+                        "Edge 2 must have an adjacent road, settlement, or city of the same color to build a road."
+                    )
 
         player.development_cards.remove(
             DevelopmentCard(DevelopmentCardType.ROAD_BUILDING, True)
         )
 
-        self.__build_road(edge_1, save_state=save_state)
+        self.__build_road(edge_1)
 
         if edge_idx_2 is not None:
-            self.__build_road(edge_2, save_state=save_state)
+            self.__build_road(edge_2)
 
     def _play_year_of_plenty(
-        self,
-        resource_type_1: ResourceType,
-        resource_type_2: ResourceType | None = None,
-        *,
-        save_state: bool = False,
+        self, resource_type_1: ResourceType, resource_type_2: ResourceType | None = None
     ) -> None:
         """
         Plays a year of plenty development card.
@@ -1585,18 +1429,19 @@ class Catan(_CatanBoard):
 
         player = self.turn
 
-        if (
-            DevelopmentCard(DevelopmentCardType.YEAR_OF_PLENTY, True)
-            not in player.development_cards
-        ):
-            raise DevelopmentCardError(
-                "Player must have a year of plenty bought on a previous turn to play a year of plenty."
-            )
+        if self.check_validity:
+            if (
+                DevelopmentCard(DevelopmentCardType.YEAR_OF_PLENTY, True)
+                not in player.development_cards
+            ):
+                raise DevelopmentCardError(
+                    "Player must have a year of plenty bought on a previous turn to play a year of plenty."
+                )
 
-        if (resource_type_2 is None) != (sum(self.resource_amounts.values()) == 1):
-            raise ValueError(
-                "Must only take one card when there is only one card left."
-            )
+            if (resource_type_2 is None) != (sum(self.resource_amounts.values()) == 1):
+                raise ValueError(
+                    "Must only take one card when there is only one card left."
+                )
 
         resource_amounts = defaultdict(int)
 
@@ -1605,11 +1450,12 @@ class Catan(_CatanBoard):
         if resource_type_2 is not None:
             resource_amounts[resource_type_2] += 1
 
-        if not all(
-            self.resource_amounts[resource_type] >= amount
-            for resource_type, amount in resource_amounts.items()
-        ):
-            raise NotEnoughGameCardsError("Must have enough resources in supply.")
+        if self.check_validity:
+            if not all(
+                self.resource_amounts[resource_type] >= amount
+                for resource_type, amount in resource_amounts.items()
+            ):
+                raise NotEnoughGameCardsError("Must have enough resources in supply.")
 
         player.development_cards.remove(
             DevelopmentCard(DevelopmentCardType.YEAR_OF_PLENTY, True)
@@ -1617,10 +1463,7 @@ class Catan(_CatanBoard):
 
         self._transfer_resources(None, player, resource_amounts)
 
-        if save_state:
-            self._action_stack[-1].append(resource_amounts)
-
-    def _produce_resources(self, token: Token, *, save_state: bool = False) -> None:
+    def _produce_resources(self, token: Token) -> None:
         """
         Gives resources to players based on the token.
 
@@ -1629,8 +1472,9 @@ class Catan(_CatanBoard):
         :raises ValueError:
         """
 
-        if token not in TOKENS:
-            raise ValueError("Token must be valid.")
+        if self.check_validity:
+            if token not in TOKENS:
+                raise ValueError("Token must be valid.")
 
         transfers = []
         for tile in self.token_to_tiles[token]:
@@ -1666,8 +1510,156 @@ class Catan(_CatanBoard):
                     )
                     transfers.append((player, resource_amounts))
 
-        if save_state:
-            self._action_stack[-1].append(transfers)
+    def _trade_domestic(
+        self,
+        color_to_trade_with: Color | None,
+    ) -> None:
+        if color_to_trade_with is not None:
+            player, player_to_trade_with = (
+                self.non_turn_action[1],
+                self._color_to_player[color_to_trade_with],
+            )
+            resource_amounts_out, resource_amounts_in = self.trade_request[0]
+            self._transfer_resources(player_to_trade_with, player, resource_amounts_in)
+            self._transfer_resources(player, player_to_trade_with, resource_amounts_out)
+        self.trade_request = None
+        self.non_turn_action = True
+
+    def _trade_domestic_request(
+        self,
+        resource_amounts_out: dict[ResourceType, int],
+        resource_amounts_in: dict[ResourceType, int],
+    ) -> None:
+        """
+        Posts a domestic trade request
+
+        :param resource_amounts_out: The amounts of resources to trade away.
+        :param resource_amounts_in: The amounts of resources to trade for.
+        """
+
+        player = self.turn
+
+        if self.check_validity:
+            if not all(amount > 0 for amount in resource_amounts_out.values()):
+                raise ValueError(
+                    f"Player 1's resource amounts must all be positive, got {resource_amounts_out}."
+                )
+            if not all(amount > 0 for amount in resource_amounts_in.values()):
+                raise ValueError(
+                    f"Player 2's resource amounts must all be positive, got {resource_amounts_in}."
+                )
+
+            if len(resource_amounts_out) <= 0:
+                raise ValueError(f"Player 1 must trade at least 1 resource.")
+            if len(resource_amounts_in) <= 0:
+                raise ValueError(f"Player 2 must trade at least 1 resource.")
+
+            if any(
+                resource_type in resource_amounts_in
+                for resource_type in resource_amounts_out
+            ):
+                raise ValueError(
+                    f"Player 1 cannot trade a resource they are receiving, got {resource_amounts_out} and {resource_amounts_in}."
+                )
+
+            if not all(
+                player.resource_amounts[resource_type] >= resource_amount
+                for resource_type, resource_amount in resource_amounts_out.items()
+            ):
+                raise InvalidResourcesError(
+                    f"Player does not have enough resources to trade away, got {resource_amounts_out}."
+                )
+
+        self.trade_request = (resource_amounts_out, resource_amounts_in), []
+        self.non_turn_action = Action.TRADE_DOMESTIC_RESPOND, player
+
+        self._end_turn()
+
+    def _trade_domestic_respond(self, response: Color | bool | None) -> None:
+        """
+        Responds to a domestic trade request.
+
+        :param response: The response to the trade request.
+        """
+
+        player = self.turn
+
+        if player is not self.non_turn_action[1]:
+            if self.check_validity:
+                if not isinstance(response, bool):
+                    raise ValueError("Response must be a boolean.")
+
+            if response:
+                if self.check_validity:
+                    if not all(
+                        player.resource_amounts[resource_type] >= resource_amount
+                        for resource_type, resource_amount in self.trade_request[0][
+                            1
+                        ].items()
+                    ):
+                        raise InvalidResourcesError(
+                            f"Player does not have enough resources to accept trade, got {player.resource_amounts}."
+                        )
+
+                self.trade_request[1].append(player.color)
+
+            self._end_turn()
+        else:
+            if self.check_validity:
+                if not (isinstance(response, Color) or response is None):
+                    raise ValueError("Response must be a color or None.")
+
+                if (
+                    isinstance(response, Color)
+                    and response not in self.trade_request[1]
+                ):
+                    raise ValueError(f"Player {response.name} did not accept trade.")
+
+            self._trade_domestic(response)
+
+    def _trade_maritime(
+        self, resource_type_out: ResourceType, resource_type_in: ResourceType
+    ) -> None:
+        """
+        Trades resources for a maritime trade.
+
+        :param resource_type_out: The type of resource the player is trading out.
+        :param resource_type_in: The type of resource the player is trading in.
+
+        :raises InvalidResourcesError:
+        :raises NotEnoughGameCardsError:
+        :raises ValueError
+        """
+
+        if self.check_validity:
+            if resource_type_out is resource_type_in:
+                raise ValueError(f"Cannot trade {resource_type_out} for itself.")
+
+            if self.resource_amounts[resource_type_in] == 0:
+                raise NotEnoughGameCardsError(
+                    f"Not enough {resource_type_in} cards in the game."
+                )
+
+        player = self.turn
+
+        resource_amount_out = (
+            2
+            if HarborType(resource_type_out.value) in player.harbor_types
+            else 3 if HarborType.GENERIC in player.harbor_types else 4
+        )
+
+        if self.check_validity:
+            player_resource_amount = player.resource_amounts[resource_type_out]
+            if player_resource_amount < resource_amount_out:
+                raise InvalidResourcesError(
+                    f"Player does not have enough resources to trade {resource_amount_out}, has {player_resource_amount}."
+                )
+
+        resource_amounts_out, resource_amounts_in = {
+            resource_type_out: resource_amount_out
+        }, {resource_type_in: 1}
+        self._transfer_resources(player, None, resource_amounts_out)
+        self._transfer_resources(None, player, resource_amounts_in)
 
     def _transfer_resources(
         self,
@@ -1684,419 +1676,68 @@ class Catan(_CatanBoard):
             player_from.resource_amounts[resource_type] -= resource_amount
             player_to.resource_amounts[resource_type] += resource_amount
 
-    def _undo_end_turn(self, prev_states: list[Any]) -> None:
-        (
-            turns_that_round,
-            prev_round,
-            unplayable_development_cards,
-            flipped_order,
-        ) = prev_states
-
-        if flipped_order:
-            self.players.reverse()
-
-        self.players = self.players[-1:] + self.players[:-1]
-
-        for unplayable_development_card in unplayable_development_cards:
-            unplayable_development_card.playable = False
-
-        self.round = prev_round
-        self.turns_this_round = turns_that_round
-
-    def do_action(
-        self, action: Action, extra: list[Any], *, save_state: bool = False
-    ) -> None:
+    def do_action(self, action: Action, extra: list[Any]) -> None:
         """
         Does an action.
 
         :param action: The action to do.
         :param extra: The extra arguments for the action.
-        :param save_state: Whether to save the state of the game before doing the action.
         """
 
-        if self.is_set_up != (action is Action.BUILD_SET_UP):
-            raise PhaseError(f"Cannot do action {action} in current phase.")
-
-        if save_state:
-            self._action_stack.append([action, extra])
+        if self.check_validity:
+            if self.is_set_up != (action is Action.BUILD_SET_UP):
+                raise PhaseError(f"Cannot do action {action} in current phase.")
 
         if action is Action.END_TURN:
-            self._end_turn(save_state=save_state)
+            self._end_turn()
         elif action is Action.BUILD_SET_UP:
             vertex_idx, edge_idx = extra
-            self._build_set_up(vertex_idx, edge_idx, save_state=save_state)
+            self._build_set_up(vertex_idx, edge_idx)
         elif action is Action.PRODUCE_RESOURCES:
             (token,) = extra
-            self._produce_resources(token, save_state=save_state)
+            self._produce_resources(token)
         elif action is Action.DISCARD_HALF:
-            color, amounts = extra
-            self._discard_half(color, amounts, save_state=save_state)
+            (amounts,) = extra
+            self._discard_half(amounts)
         elif action is Action.MOVE_ROBBER:
             new_robber_tile_idx, color_to_take_from = extra
-            self._move_robber(
-                new_robber_tile_idx, color_to_take_from, save_state=save_state
-            )
+            self._move_robber(new_robber_tile_idx, color_to_take_from)
+        elif action is Action.TRADE_DOMESTIC_RESPOND:
+            (response,) = extra
+            self._trade_domestic_respond(response)
         elif action is Action.PLAY_DEVELOPMENT_CARD:
             development_card_type, *extra = extra
             if development_card_type is DevelopmentCardType.KNIGHT:
                 new_robber_tile_idx, color_to_take_from = extra
-                self._play_knight(
-                    new_robber_tile_idx, color_to_take_from, save_state=save_state
-                )
+                self._play_knight(new_robber_tile_idx, color_to_take_from)
             elif development_card_type is DevelopmentCardType.ROAD_BUILDING:
                 edge_idx_1, edge_idx_2 = extra
-                self._play_road_building(edge_idx_1, edge_idx_2, save_state=save_state)
+                self._play_road_building(edge_idx_1, edge_idx_2)
             elif development_card_type is DevelopmentCardType.YEAR_OF_PLENTY:
                 resource_type_1, resource_type_2 = extra
-                self._play_year_of_plenty(
-                    resource_type_1, resource_type_2, save_state=save_state
-                )
+                self._play_year_of_plenty(resource_type_1, resource_type_2)
             elif development_card_type is DevelopmentCardType.MONOPOLY:
                 (resource_type,) = extra
-                self._play_monopoly(resource_type, save_state=save_state)
-        elif action is Action.TRADE_DOMESTIC:
-            raise NotImplementedError
-            amounts_out = [...]
-            amounts_in = [...]
-            resource_amounts_out = dict(zip(ResourceType, amounts_out))
-            resource_amounts_in = dict(zip(ResourceType, amounts_in))
-
-            for player in self.players[1:]:
-                other_action = ...
-                if other_action is Action.ACCEPT_TRADE:
-                    color_to_trade_with = player.color
-                    self.domestic_trade(
-                        resource_amounts_out,
-                        resource_amounts_in,
-                        color_to_trade_with,
-                    )
-                    break
+                self._play_monopoly(resource_type)
+            for development_card in self.turn.development_cards:
+                development_card.playable = False
+        elif action is Action.TRADE_DOMESTIC_REQUEST:
+            resource_amounts_out, resource_amounts_in = extra
+            self._trade_domestic_request(resource_amounts_out, resource_amounts_in)
         elif action is Action.TRADE_MARITIME:
             resource_type_out, resource_type_in = extra
-            self._maritime_trade(
-                resource_type_out, resource_type_in, save_state=save_state
-            )
+            self._trade_maritime(resource_type_out, resource_type_in)
         elif action is Action.BUILD_ROAD:
             (edge_idx,) = extra
-            self._build_road(edge_idx, save_state=save_state)
+            self._build_road(edge_idx)
         elif action is Action.BUILD_SETTLEMENT:
             (vertex_idx,) = extra
-            self._build_settlement(vertex_idx, save_state=save_state)
+            self._build_settlement(vertex_idx)
         elif action is Action.BUILD_CITY:
             (vertex_idx,) = extra
-            self._build_city(vertex_idx, save_state=save_state)
+            self._build_city(vertex_idx)
         elif action is Action.BUY_DEVELOPMENT_CARD:
-            self._buy_development_card(save_state=save_state)
-
-    def legal_discard_halfs(
-        self, color: Color
-    ) -> Iterator[list[int, int, int, int, int]]:
-        player = self._color_to_player[color]
-        amt_to_discard = sum(player.resource_amounts.values()) // 2
-
-        def get_discard(
-            cur: list[int, int, int, int, int],
-            amts: dict[ResourceType, int],
-            amt_left: int,
-            resource_type: ResourceType,
-        ) -> list[int, int, int, int, int]:
-            if amt_left == 0:
-                yield Action.DISCARD_HALF, color, cur
-                return
-
-            if resource_type == ResourceType.WOOL:
-                if amts[resource_type] < amt_left:
-                    return
-                cur[resource_type.value] += amt_left
-                yield Action.DISCARD_HALF, color, cur
-                return
-
-            for amt in range(min(amts[resource_type] + 1, amt_left + 1)):
-                cur[resource_type.value] += amt
-                amts[resource_type] -= amt
-                yield from get_discard(
-                    cur.copy(),
-                    amts,
-                    amt_left - amt,
-                    ResourceType(resource_type.value + 1),
-                )
-                cur[resource_type.value] -= amt
-                amts[resource_type] += amt
-
-        yield from get_discard(
-            [0] * 5, player.resource_amounts.copy(), amt_to_discard, ResourceType.BRICK
-        )
-
-    def undo_action(self) -> None:
-        """
-        Undoes the last action.
-        """
-
-        action, extra, *prev_states = self._action_stack.pop()
-
-        if action is Action.END_TURN:
-            self._undo_end_turn(prev_states=prev_states)
-        elif action is Action.BUILD_SET_UP:
-            (
-                build_settlement_state,
-                build_road_state,
-                *prev_states,
-                second_round,
-                resource_amounts,
-            ) = prev_states
-
-            self._undo_end_turn(prev_states=prev_states)
-
-            player = self.turn
-
-            if second_round:
-                self._transfer_resources(player, None, resource_amounts)
-
-            (
-                edge,
-                added_connected_edge_idxs,
-                added_connected_vertex_idxs,
-                prev_longest_road,
-                _,
-                _,
-            ) = build_road_state
-
-            # if became_longest_road_player:
-            #     player.victory_points -= 2
-
-            #     self.longest_road_player = prev_longest_road_player
-
-            #     if prev_longest_road_player is not None:
-            #         prev_longest_road_player.victory_points += 2
-
-            player.longest_road = prev_longest_road
-
-            for edge_idx in added_connected_edge_idxs:
-                self._connected_edges[player.color].remove(edge_idx)
-            for vertex_idx in added_connected_vertex_idxs:
-                self._connected_vertices[player.color].remove(vertex_idx)
-
-            edge.road = None
-
-            player.roads_left += 1
-
-            (
-                vertex,
-                added_distance_rule_vertex_idxs,
-                added_harbor_type,
-            ) = build_settlement_state
-
-            if added_harbor_type is not None:
-                player.harbor_types.remove(added_harbor_type)
-
-            player.victory_points -= 1
-
-            for vertex_idx in added_distance_rule_vertex_idxs:
-                self._distance_rule_vertices.remove(vertex_idx)
-
-            self._building_vertices[player.color].remove(vertex.idx)
-
-            vertex.building = None
-
-            player.settlements_left += 1
-        elif action is Action.PRODUCE_RESOURCES:
-            (transfers,) = prev_states
-
-            for player, resource_amounts in transfers:
-                self._transfer_resources(player, None, resource_amounts)
-        elif action is Action.DISCARD_HALF:
-            player, resource_amounts = prev_states
-
-            self._transfer_resources(None, player, resource_amounts)
-        elif action is Action.MOVE_ROBBER:
-            player = self.turn
-            player_took_from, resource_type_took, prev_robber_tile = prev_states
-
-            self.robber_tile.has_robber = False
-            self.robber_tile = prev_robber_tile
-            prev_robber_tile.has_robber = True
-
-            if player_took_from is not None:
-                self._transfer_resources(
-                    player, player_took_from, {resource_type_took: 1}
-                )
-        elif action is Action.PLAY_DEVELOPMENT_CARD:
-            player = self.turn
-            development_card_type, *extra = extra
-            if development_card_type is DevelopmentCardType.KNIGHT:
-                (
-                    player_took_from,
-                    resource_type_took,
-                    prev_robber_tile,
-                    became_largest_army_player,
-                    prev_largest_army_player,
-                ) = prev_states
-
-                if became_largest_army_player:
-                    player.victory_points -= 2
-
-                    self.largest_army_player = prev_largest_army_player
-
-                    if prev_largest_army_player is not None:
-                        prev_largest_army_player.victory_points += 2
-
-                player.knights_played -= 1
-
-                player.development_cards.append(
-                    DevelopmentCard(DevelopmentCardType.KNIGHT, True)
-                )
-
-                self.robber_tile.has_robber = False
-                self.robber_tile = prev_robber_tile
-                prev_robber_tile.has_robber = True
-
-                if player_took_from is not None:
-                    self._transfer_resources(
-                        player, player_took_from, {resource_type_took: 1}
-                    )
-            elif development_card_type is DevelopmentCardType.ROAD_BUILDING:
-                build_road_states = prev_states
-
-                for build_road_state in build_road_states[::-1]:
-                    (
-                        edge,
-                        added_connected_edge_idxs,
-                        added_connected_vertex_idxs,
-                        prev_longest_road,
-                        became_longest_road_player,
-                        prev_longest_road_player,
-                    ) = build_road_state
-
-                    if became_longest_road_player:
-                        player.victory_points -= 2
-
-                        self.longest_road_player = prev_longest_road_player
-
-                        if prev_longest_road_player is not None:
-                            prev_longest_road_player.victory_points += 2
-
-                    player.longest_road = prev_longest_road
-
-                    for edge_idx in added_connected_edge_idxs:
-                        self._connected_edges[player.color].remove(edge_idx)
-                    for vertex_idx in added_connected_vertex_idxs:
-                        self._connected_vertices[player.color].remove(vertex_idx)
-
-                    edge.road = None
-
-                    player.roads_left += 1
-
-                player.development_cards.append(
-                    DevelopmentCard(DevelopmentCardType.ROAD_BUILDING, True)
-                )
-            elif development_card_type is DevelopmentCardType.YEAR_OF_PLENTY:
-                (resource_amounts,) = prev_states
-
-                self._transfer_resources(player, None, resource_amounts)
-
-                player.development_cards.append(
-                    DevelopmentCard(DevelopmentCardType.YEAR_OF_PLENTY, True)
-                )
-            elif development_card_type is DevelopmentCardType.MONOPOLY:
-                (transfers,) = prev_states
-
-                for other_player, resource_amounts in transfers:
-                    self._transfer_resources(player, other_player, resource_amounts)
-
-                player.development_cards.append(
-                    DevelopmentCard(DevelopmentCardType.MONOPOLY, True)
-                )
-        elif action is Action.TRADE_DOMESTIC:
-            raise NotImplementedError
-        elif action is Action.TRADE_MARITIME:
-            player = self.turn
-            resource_amounts_out, resource_amounts_in = prev_states
-
-            self._transfer_resources(None, player, resource_amounts_out)
-            self._transfer_resources(player, None, resource_amounts_in)
-        elif action is Action.BUILD_ROAD:
-            player = self.turn
-            (build_road_state,) = prev_states
-
-            (
-                edge,
-                added_connected_edge_idxs,
-                added_connected_vertex_idxs,
-                prev_longest_road,
-                became_longest_road_player,
-                prev_longest_road_player,
-            ) = build_road_state
-
-            if became_longest_road_player:
-                player.victory_points -= 2
-
-                self.longest_road_player = prev_longest_road_player
-
-                if prev_longest_road_player is not None:
-                    prev_longest_road_player.victory_points += 2
-
-            player.longest_road = prev_longest_road
-
-            for edge_idx in added_connected_edge_idxs:
-                self._connected_edges[player.color].remove(edge_idx)
-            for vertex_idx in added_connected_vertex_idxs:
-                self._connected_vertices[player.color].remove(vertex_idx)
-
-            edge.road = None
-
-            player.roads_left += 1
-
-            self._transfer_resources(None, player, ROAD_COST)
-        elif action is Action.BUILD_SETTLEMENT:
-            player = self.turn
-            (build_settlement_state,) = prev_states
-
-            (
-                vertex,
-                added_distance_rule_vertex_idxs,
-                added_harbor_type,
-            ) = build_settlement_state
-
-            if added_harbor_type is not None:
-                player.harbor_types.remove(added_harbor_type)
-
-            player.victory_points -= 1
-
-            for vertex_idx in added_distance_rule_vertex_idxs:
-                self._distance_rule_vertices.remove(vertex_idx)
-
-            self._building_vertices[player.color].remove(vertex.idx)
-
-            vertex.building = None
-
-            player.settlements_left += 1
-
-            self._transfer_resources(None, player, SETTLEMENT_COST)
-        elif action is Action.BUILD_CITY:
-            player = self.turn
-            (vertex,) = prev_states
-
-            player.victory_points -= 1
-            vertex.building.building_type = BuildingType.SETTLEMENT
-            player.cities_left += 1
-            player.settlements_left -= 1
-
-            self._transfer_resources(None, player, CITY_COST)
-        elif action is Action.BUY_DEVELOPMENT_CARD:
-            player = self.turn
-            (development_card,) = prev_states
-
-            if (
-                development_card.development_card_type
-                is DevelopmentCardType.VICTORY_POINT
-            ):
-                player.victory_points -= 1
-                player._development_card_victory_points -= 1
-
-            player.development_cards.pop()
-            self.development_cards.append(development_card)
-
-            self._transfer_resources(None, player, DEVELOPMENT_CARD_COST)
+            self._buy_development_card()
 
     @property
     def is_game_over(self) -> bool:
@@ -2120,7 +1761,15 @@ class Catan(_CatanBoard):
 
     @property
     def legal_actions(self) -> Iterator[tuple[Action, ...]]:
-        if self.is_set_up or self.is_game_over:
+        if self.is_game_over:
+            return
+
+        if self.is_set_up:
+            for vertex_idx in self.legal_build_settlements:
+                vertex = self.vertices[vertex_idx]
+                for edge in vertex.adj_edges:
+                    if edge.road is None:
+                        yield Action.BUILD_SET_UP, vertex_idx, edge.idx
             return
 
         player = self.turn
@@ -2129,7 +1778,7 @@ class Catan(_CatanBoard):
             edge_idx
             for edge_idx in EDGE_IDXS
             if self.edges[edge_idx].road is None
-            and edge_idx in self._connected_edges[player.color]
+            and edge_idx in self._connected_edge_idxs[player.color]
         ]
 
         # build city
@@ -2143,18 +1792,10 @@ class Catan(_CatanBoard):
                 yield Action.BUILD_CITY, vertex_idx
 
         # build settlement
-        if player.settlements_left > 0 and all(
-            player.resource_amounts[resource_type] >= abs(cost)
-            for resource_type, cost in SETTLEMENT_COST.items()
-        ):
-            for vertex_idx in VERTEX_IDXS:
-                if (
-                    self.vertices[vertex_idx].building is not None
-                    or vertex_idx in self._distance_rule_vertices
-                    or vertex_idx not in self._connected_vertices[player.color]
-                ):
-                    continue
-                yield Action.BUILD_SETTLEMENT, vertex_idx
+        yield from (
+            (Action.BUILD_SETTLEMENT, vertex_idx)
+            for vertex_idx in self.legal_build_settlements
+        )
 
         # buy development card
         if self.development_cards and all(
@@ -2233,17 +1874,15 @@ class Catan(_CatanBoard):
 
         yield Action.END_TURN,
 
-        # trade domestic
-        # yield Action.TRADE_DOMESTIC
+        # trade domestic request
+        # yield Action.TRADE_DOMESTIC_REQUEST
 
         # trade maritime
         for resource_type_out in ResourceType:
             resource_amount_out = (
                 2
                 if HarborType(resource_type_out.value) in player.harbor_types
-                else 3
-                if HarborType.GENERIC in player.harbor_types
-                else 4
+                else 3 if HarborType.GENERIC in player.harbor_types else 4
             )
             if player.resource_amounts[resource_type_out] < resource_amount_out:
                 continue
@@ -2257,21 +1896,57 @@ class Catan(_CatanBoard):
                 yield Action.TRADE_MARITIME, resource_type_out, resource_type_in
 
     @property
-    def legal_set_ups(self) -> Iterator[tuple[VertexIdx, EdgeIdx]]:
-        if not self.is_set_up:
-            return
+    def legal_build_settlements(self) -> Iterator[VertexIdx]:
+        player = self.turn
 
-        for vertex_idx in VERTEX_IDXS:
-            vertex = self.vertices[vertex_idx]
-            if (
-                vertex.building is not None
-                or vertex_idx in self._distance_rule_vertices
-            ):
-                continue
-            for edge in vertex.adj_edges:
-                if edge.road is not None:
-                    continue
-                yield vertex_idx, edge.idx
+        if player.settlements_left > 0 and (
+            self.is_set_up
+            or all(
+                player.resource_amounts[resource_type] >= abs(cost)
+                for resource_type, cost in SETTLEMENT_COST.items()
+            )
+        ):
+            for vertex_idx in VERTEX_IDXS:
+                if self._legal_build_settlement_idx(vertex_idx):
+                    yield vertex_idx
+
+    @property
+    def legal_discard_halfs(self) -> Iterator[Action, list[int, int, int, int, int]]:
+        player = self.turn
+        amt_to_discard = sum(player.resource_amounts.values()) // 2
+
+        def get_discard(
+            cur: list[int, int, int, int, int],
+            amts: dict[ResourceType, int],
+            amt_left: int,
+            resource_type: ResourceType,
+        ) -> Iterator[Action, list[int, int, int, int, int]]:
+            if amt_left == 0:
+                yield Action.DISCARD_HALF, cur
+                return
+
+            if resource_type == ResourceType.WOOL:
+                if amts[resource_type] < amt_left:
+                    return
+                cur[resource_type.value] += amt_left
+                yield Action.DISCARD_HALF, cur
+                return
+
+            for amt in range(min(amts[resource_type] + 1, amt_left + 1)):
+                cur[resource_type.value] += amt
+                amts[resource_type] -= amt
+                yield from get_discard(
+                    cur.copy(),
+                    amts,
+                    amt_left - amt,
+                    ResourceType(resource_type.value + 1),
+                )
+                cur[resource_type.value] -= amt
+                amts[resource_type] += amt
+
+        yield from get_discard(
+            [0] * 5, player.resource_amounts.copy(), amt_to_discard, ResourceType.BRICK
+        )
 
     @property
     def legal_robber_moves(self) -> Iterator[tuple[Action, TileIdx, Color | None]]:
@@ -2293,6 +1968,24 @@ class Catan(_CatanBoard):
                     yield Action.MOVE_ROBBER, tile_idx, color_to_take_from
 
     @property
+    def legal_trade_responses(self) -> Iterator[tuple[Action, Color | bool | None]]:
+        player = self.turn
+
+        if player is self.non_turn_action[1]:
+            if not self.trade_request[1]:
+                yield Action.TRADE_DOMESTIC_RESPOND, None
+            else:
+                for color in self.trade_request[1]:
+                    yield Action.TRADE_DOMESTIC_RESPOND, color
+        else:
+            if all(
+                player.resource_amounts[resource_type] >= resource_amount
+                for resource_type, resource_amount in self.trade_request[0][1].items()
+            ):
+                yield Action.TRADE_DOMESTIC_RESPOND, True
+            yield Action.TRADE_DOMESTIC_RESPOND, False
+
+    @property
     def turn(self) -> Player:
         """
         Gets the player with the current turn.
@@ -2303,16 +1996,21 @@ class Catan(_CatanBoard):
         return self.players[0]
 
     @property
-    def winner(self) -> Color | None:
+    def winner(self) -> Player | None:
         """
         Gets the winner of the game.
 
-        :return: The color of the winner of the game, or None if there isn't one.
+        :return: The player who won the game, or None if there isn't one.
         """
 
         for player in self.players:
-            if player.victory_points >= WINNING_VICTORY_POINTS:
-                return player.color
+            vp = (
+                (player.victory_points - player._development_card_victory_points)
+                if self.turn is not player
+                else player.victory_points
+            )
+            if vp >= WINNING_VICTORY_POINTS:
+                return player
 
         return None
 
@@ -2328,52 +2026,65 @@ class Catan(_CatanBoard):
 
 
 def main() -> None:
-    """Example usage"""
+    """Example usage with random actions"""
 
-    save_state = False
     c = Catan()
 
-    # set up phase
-    while c.is_set_up:
-        for player in c.players:
-            vertex_idx, edge_idx = choice(
-                list((c.legal_set_ups))
-            )  # randomly choose action
-            c.do_action(
-                Action.BUILD_SET_UP, [vertex_idx, edge_idx], save_state=save_state
-            )
-
-    # gameplay
     while not c.is_game_over:
-        roll = c.roll_dice()
-        # effects from rolling
-        if roll == 7:
-            for player in c.players:
-                num_resources = sum(player.resource_amounts.values())
-                if num_resources > 7:
-                    action, *extra = choice(
-                        list((c.legal_discard_halfs(player.color)))
-                    )  # randomly choose action
-                    c.do_action(action, extra, save_state=save_state)
+        # discard half, move robber, or respond to trade request
+        if isinstance(c.non_turn_action, tuple):
+            non_turn_action, start_player = c.non_turn_action
 
-            action, *extra = choice(
-                list((c.legal_robber_moves))
-            )  # randomly choose action
-            c.do_action(action, extra, save_state=save_state)
+            if non_turn_action is Action.DISCARD_HALF:
+                if c.turn is start_player:
+                    # move the robber
+                    c.non_turn_action = True
+                    action, *extra = choice(
+                        list((c.legal_robber_moves))
+                    )  # randomly choose robber move
+                    c.do_action(action, extra)
+                else:
+                    # discard half
+                    action, *extra = choice(
+                        list((c.legal_discard_halfs))
+                    )  # randomly choose discard
+                    c.do_action(action, extra)
+            elif non_turn_action is Action.TRADE_DOMESTIC_RESPOND:
+                # respond to trade request
+                action, *extra = choice(
+                    list((c.legal_trade_responses))
+                )  # randomly choose trade response
+                c.do_action(action, extra)
+            continue
+        elif c.non_turn_action:
+            # already rolled this turn
+            c.non_turn_action = None
         else:
-            c.do_action(Action.PRODUCE_RESOURCES, [roll], save_state=save_state)
+            # the roll
+            if not c.is_set_up:
+                roll = c.roll_dice()
+                if roll == 7:
+                    c.non_turn_action = Action.DISCARD_HALF, c.turn
+                    action, *extra = choice(
+                        list((c.legal_discard_halfs))
+                    )  # randomly choose discard
+                    c.do_action(action, extra)
+                    continue
+                else:
+                    c.do_action(Action.PRODUCE_RESOURCES, [roll])
 
         # the turn
         while True:
             action, *extra = choice(list(c.legal_actions))  # randomly choose action
-            c.do_action(action, extra, save_state=save_state)
+            c.do_action(action, extra)
             if (
                 action is Action.END_TURN
+                or action is Action.TRADE_DOMESTIC_REQUEST
                 or c.turn.victory_points >= WINNING_VICTORY_POINTS
             ):
                 break
 
-    print(c.winner)
+    print(f"{c.winner.color.name} Wins!")
 
 
 if __name__ == "__main__":
